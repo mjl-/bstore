@@ -1,10 +1,8 @@
 bstore is a database library for storing and quering Go struct data.
 
-Documentation:
+See https://pkg.go.dev/github.com/mjl-/bstore
 
-	https://pkg.go.dev/github.com/mjl-/bstore
-
-MIT-licensed, see ./LICENSE
+MIT-licensed
 
 # Comparison
 
