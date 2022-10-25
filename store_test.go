@@ -51,6 +51,8 @@ var withReopen bool
 func TestMain(m *testing.M) {
 	log.SetFlags(0)
 
+	os.Mkdir("testdata", 0700)
+
 	// We want to run all tests twice: once without reopening the DB and once with
 	// reopening. Looks like this works, but the first Run writes the coverage profile.
 	// Good enough.

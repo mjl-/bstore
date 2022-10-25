@@ -41,6 +41,11 @@ func Example() {
 		Name string `bstore:"unique"`
 	}
 
+	// For tests.
+	os.Mkdir("testdata", 0700)
+	path := "testdata/mail.db"
+	os.Remove(path)
+
 	// Open or create database mail.db, and register types Msg and Mailbox.
 	// Bstore automatically creates (unique) indices.
 	// If you had previously opened this database with types of the same
@@ -48,8 +53,7 @@ func Example() {
 	// compatible and makes any changes necessary, such as
 	// creating/replacing indices, verifying new constraints (unique,
 	// nonzero, references).
-	os.Remove("testdata/mail.db") // For tests.
-	db, err := bstore.Open("testdata/mail.db", nil, Msg{}, Mailbox{})
+	db, err := bstore.Open(path, nil, Msg{}, Mailbox{})
 	if err != nil {
 		log.Fatalln("open:", err)
 	}
