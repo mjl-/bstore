@@ -151,7 +151,7 @@ indices:
 	// We want to use the one with as many "equal" prefix fields as
 	// possible. Then we hope to use a scan on the remaining, either
 	// because of a filterCompare, or for an ordering. If there is a limit,
-	// orderings are prefered over compares.
+	// orderings are preferred over compares.
 	equals := map[string]*filter[T]{}
 	for i := range q.xfilters {
 		ff := &q.xfilters[i]
