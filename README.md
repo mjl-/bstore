@@ -47,5 +47,5 @@ Q: How does bstore store its data?
 A bstore database is a single-file BoltDB database. BoltDB provides ACID
 properties. Bstore uses a BoltDB "bucket" (key/value store) for each Go type
 stored, with multiple subbuckets: one for type definitions, one for the actual
-data, and one bucket per index. BoltDB stores data in a B+tree. See format.txt
+data, and one bucket per index. BoltDB stores data in a B+tree. See format.md
 for details.
