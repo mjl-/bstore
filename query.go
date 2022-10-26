@@ -894,6 +894,7 @@ func (q *Query[T]) Count() (n int, rerr error) {
 }
 
 // List returns all selected records.
+// On success with zero selected records, List returns the empty list.
 func (q *Query[T]) List() (list []T, rerr error) {
 	defer q.finish(&rerr)
 	q.checkNotNext()
@@ -901,7 +902,7 @@ func (q *Query[T]) List() (list []T, rerr error) {
 		return nil, q.err
 	}
 
-	var l []T
+	l := []T{}
 	err := q.foreachKey(false, true, func(unused []byte, v T) error {
 		l = append(l, v)
 		return nil

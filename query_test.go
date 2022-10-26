@@ -64,6 +64,9 @@ func TestQuery(t *testing.T) {
 	l, err := q().List()
 	tcompare(t, err, l, lexp, "list")
 
+	l, err = q().FilterNotEqual("ID", u0.ID, u1.ID).List()
+	tcompare(t, err, l, []User{}, "empty selection returns empty list, not nil")
+
 	x0, err = q().FilterEqual("ID", u0.ID).Get()
 	tcheck(t, err, "get x0")
 	if !reflect.DeepEqual(u0, x0) {
