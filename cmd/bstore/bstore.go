@@ -248,8 +248,8 @@ func (e *exporter) check(err error, msg string) {
 	}
 }
 
-func (e *exporter) writePrefix(n int) {
-	for n := e.indent + n; n > 0; n-- {
+func (e *exporter) writePrefix(count int) {
+	for n := e.indent + count; n > 0; n-- {
 		e.writeStr("\t")
 	}
 }
