@@ -2216,6 +2216,35 @@ func TestRegisterRef(t *testing.T) {
 	tclose(t, db)
 }
 
+func TestRefUpdateIndex(t *testing.T) {
+	type Mailbox struct {
+		ID int64
+	}
+
+	type Message0 struct {
+		ID        int64 `bstore:"typename Message"`
+		MailboxID int64 `bstore:"ref Mailbox"`
+		MessageID string
+	}
+
+	type Message struct {
+		ID        int64
+		MailboxID int64  `bstore:"ref Mailbox"`
+		MessageID string `bstore:"index"`
+	}
+
+	path := "testdata/refupdateindex.db"
+	os.Remove(path)
+
+	db, err := topen(t, path, nil, Message0{}, Mailbox{})
+	tcheck(t, err, "open")
+	tclose(t, db)
+
+	db, err = topen(t, path, nil, Message{}, Mailbox{})
+	tcheck(t, err, "open with message that introduces field")
+	tclose(t, db)
+}
+
 func bcheck(b *testing.B, err error, msg string) {
 	if err != nil {
 		b.Fatalf("%s: %s", msg, err)

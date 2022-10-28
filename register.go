@@ -251,7 +251,7 @@ func (db *DB) Register(typeValues ...any) error {
 					}
 				}
 				if _, ok := registered[name].Current.ReferencedBy[ntv.name]; ok {
-					return fmt.Errorf("%w: newly referencing type %q already present in %q", ErrStore, ntv.name, name)
+					return fmt.Errorf("%w: type %q introduces reference to %q but is already marked as ReferencedBy in that type", ErrStore, ntv.name, name)
 				}
 				// note: we are updating the previous tv's ReferencedBy, not tidy but it is safe.
 				registered[name].Current.ReferencedBy[ntv.name] = struct{}{}
@@ -506,6 +506,14 @@ func parseSchema(bk, bv []byte) (*typeVersion, error) {
 	}
 	if tv.OndiskVersion != ondiskVersion1 {
 		return nil, fmt.Errorf("internal error: OndiskVersion %d not supported", tv.OndiskVersion)
+	}
+
+	// Fill references, used for comparing/checking schema updates.
+	tv.references = map[string]struct{}{}
+	for _, f := range tv.Fields {
+		for _, ref := range f.References {
+			tv.references[ref] = struct{}{}
+		}
 	}
 
 	return &tv, nil
