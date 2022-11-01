@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	bolt "github.com/etcd-io/bbolt"
+	bolt "go.etcd.io/bbolt"
 )
 
 func (tx *Tx) structptr(value any) (reflect.Value, error) {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	bolt "github.com/etcd-io/bbolt"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (

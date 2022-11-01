@@ -10,7 +10,7 @@ fmt:
 	gofmt -w -s *.go cmd/bstore/*.go
 
 test:
-	go test -shuffle=on -coverprofile cover.out
+	go test -race -shuffle=on -coverprofile cover.out
 	go tool cover -html=cover.out -o cover.html
 
 benchmark:

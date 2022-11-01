@@ -11,7 +11,7 @@ import (
 	"os"
 	"sort"
 
-	bolt "github.com/etcd-io/bbolt"
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/mjl-/bstore"
 )

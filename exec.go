@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	bolt "github.com/etcd-io/bbolt"
+	bolt "go.etcd.io/bbolt"
 )
 
 // exec represents the execution of a query plan.

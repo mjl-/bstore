@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	bolt "github.com/etcd-io/bbolt"
+	bolt "go.etcd.io/bbolt"
 )
 
 func tcheck(t *testing.T, err error, msg string) {

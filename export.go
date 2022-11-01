@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	bolt "github.com/etcd-io/bbolt"
+	bolt "go.etcd.io/bbolt"
 )
 
 // Types returns the types present in the database, regardless of whether they
