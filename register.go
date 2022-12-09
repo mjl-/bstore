@@ -193,9 +193,7 @@ func (db *DB) Register(typeValues ...any) error {
 			}
 
 			// Prepare types for parsing into the registered reflect.Type.
-			for _, otv := range st.Versions {
-				st.prepare(otv, rt)
-			}
+			st.prepare(tv)
 
 			st.Current = tv
 			st.Versions[tv.Version] = tv
@@ -887,10 +885,10 @@ func gatherFieldType(t reflect.Type, inMap bool) (fieldType, error) {
 	return ft, nil
 }
 
-// prepare tv for storing type t into it.
+// Prepare all types for parsing into the current type represented by ntv.
 // We have to look at later typeVersions that may have removed a field. If so,
 // we will not set it on t but leave it at its default value.
-func (st storeType) prepare(tv *typeVersion, t reflect.Type) {
+func (st storeType) prepare(ntv *typeVersion) {
 	var l []*typeVersion
 	for _, tv := range st.Versions {
 		l = append(l, tv)
@@ -903,18 +901,18 @@ func (st storeType) prepare(tv *typeVersion, t reflect.Type) {
 		later = append(later, tv.Fields)
 	}
 	for i, tv := range l {
-		tv.prepare(t, later[i+1:])
+		tv.prepare(ntv, later[i+1:])
 	}
 }
 
 // prepare for use with parse.
-func (tv typeVersion) prepare(t reflect.Type, later [][]field) {
+func (tv typeVersion) prepare(ntv *typeVersion, later [][]field) {
 	for i, f := range tv.Fields {
 		nlater, skip := lookupLater(f.Name, later)
 		if skip {
 			continue
 		}
-		tv.Fields[i].prepare(t, nlater)
+		tv.Fields[i].prepare(ntv.Fields, nlater)
 	}
 }
 
@@ -936,32 +934,29 @@ tv:
 	return nlater, false
 }
 
-func (f *field) prepare(t reflect.Type, later [][]field) {
-	sf, ok := t.FieldByName(f.Name)
-	if !ok {
-		return
+func (f *field) prepare(nfields []field, later [][]field) {
+	for _, nf := range nfields {
+		if nf.Name == f.Name {
+			f.structField = nf.structField
+			f.Type.prepare(&nf.Type, later)
+		}
 	}
-	f.structField = sf
-	f.Type.prepare(f.structField.Type, later)
 }
 
-func (ft fieldType) prepare(t reflect.Type, later [][]field) {
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
+func (ft fieldType) prepare(nft *fieldType, later [][]field) {
 	for i, f := range ft.Fields {
 		nlater, skip := lookupLater(f.Name, later)
 		if skip {
 			continue
 		}
-		ft.Fields[i].prepare(t, nlater)
+		ft.Fields[i].prepare(nft.Fields, nlater)
 	}
 	if ft.MapKey != nil {
-		ft.MapKey.prepare(t.Key(), later)
-		ft.MapValue.prepare(t.Elem(), later)
+		ft.MapKey.prepare(nft.MapKey, later)
+		ft.MapValue.prepare(nft.MapValue, later)
 	}
 	if ft.List != nil {
-		ft.List.prepare(t.Elem(), later)
+		ft.List.prepare(nft.List, later)
 	}
 }
 

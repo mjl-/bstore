@@ -2245,6 +2245,97 @@ func TestRefUpdateIndex(t *testing.T) {
 	tclose(t, db)
 }
 
+func TestChangeType(t *testing.T) {
+	type T0 struct {
+		ID   int64 `bstore:"typename T"`
+		Name string
+		S    string
+	}
+
+	type T1 struct {
+		ID   int64    `bstore:"typename T"`
+		Name []string `bstore:"name Name2"`
+		S    string
+	}
+
+	type T2 struct {
+		ID   int64 `bstore:"typename T"`
+		Name string
+		S    string
+	}
+
+	path := "testdata/changetype.db"
+	os.Remove(path)
+
+	db, err := topen(t, path, nil, T0{})
+	tcheck(t, err, "open")
+	v0 := T0{Name: "test", S: "s"}
+	err = db.Insert(&v0)
+	tcheck(t, err, "insert")
+	tclose(t, db)
+
+	db, err = topen(t, path, nil, T1{})
+	tcheck(t, err, "open with renamed field of different type")
+	v1 := T1{ID: v0.ID, S: "s"}
+	err = db.Get(&v1)
+	tcompare(t, err, v1, T1{v0.ID, nil, "s"}, "get")
+	tclose(t, db)
+
+	db, err = topen(t, path, nil, T2{})
+	tcheck(t, err, "open with renamed field of different type")
+	v2 := T2{ID: v0.ID, S: "s"}
+	err = db.Get(&v2)
+	tcompare(t, err, v2, T2{v0.ID, "", "s"}, "get")
+	tclose(t, db)
+}
+
+func TestChangeTypeSub(t *testing.T) {
+	type Sub1 struct {
+		Name string
+	}
+	type Sub2 struct {
+		Name []string `bstore:"name Name2"`
+	}
+	type T0 struct {
+		ID  int64 `bstore:"typename T"`
+		Sub Sub1
+	}
+
+	type T1 struct {
+		ID  int64 `bstore:"typename T"`
+		Sub Sub2
+	}
+
+	type T2 struct {
+		ID  int64 `bstore:"typename T"`
+		Sub Sub1
+	}
+
+	path := "testdata/changetypesub.db"
+	os.Remove(path)
+
+	db, err := topen(t, path, nil, T0{})
+	tcheck(t, err, "open")
+	v0 := T0{0, Sub1{"test"}}
+	err = db.Insert(&v0)
+	tcheck(t, err, "insert")
+	tclose(t, db)
+
+	db, err = topen(t, path, nil, T1{})
+	tcheck(t, err, "open with renamed field of different type")
+	v1 := T1{v0.ID, Sub2{[]string{"x"}}}
+	err = db.Get(&v1)
+	tcompare(t, err, v1, T1{v0.ID, Sub2{nil}}, "get")
+	tclose(t, db)
+
+	db, err = topen(t, path, nil, T2{})
+	tcheck(t, err, "open with renamed field of different type")
+	v2 := T2{v0.ID, Sub1{"x"}}
+	err = db.Get(&v2)
+	tcompare(t, err, v2, T2{v0.ID, Sub1{""}}, "get")
+	tclose(t, db)
+}
+
 func bcheck(b *testing.B, err error, msg string) {
 	if err != nil {
 		b.Fatalf("%s: %s", msg, err)
