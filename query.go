@@ -596,7 +596,9 @@ func gatherNonzeroFields(tv *typeVersion, rv reflect.Value, allowID bool) ([]fie
 }
 
 // FilterNonzero gathers the nonzero fields from value, and selects records that
-// have equal values for those fields. At least one value must be nonzero.
+// have equal values for those fields. At least one value must be nonzero. If a
+// value comes from an external source, e.g. user input, make sure it is not
+// the zero value.
 //
 // Keep in mind that filtering on an embed/anonymous field looks at individual
 // fields in the embedded field for non-zeroness, not at the embed field as a whole.
@@ -917,7 +919,8 @@ func (q *Query[T]) List() (list []T, rerr error) {
 // value, returning the number of records updated.
 //
 // Recall that false, 0, "" are all zero values. Use UpdateField or
-// UpdateFields to set fields to zero their value.
+// UpdateFields to set fields to zero their value. This is especially relevant
+// if the field value comes from an external source, e.g. user input.
 //
 // See Gather and GatherIDs for collecting the updated records or IDs.
 //
