@@ -3,14 +3,14 @@ Command bstore provides commands for inspecting a bstore database.
 
 Subcommands:
 
-	usage: store types file.db
-	       store drop file.db type
-	       store dumptype file.db type
-	       store keys file.db type
-	       store records file.db type
-	       store record file.db type key
-	       store exportcsv file.db type >export.csv
-	       store exportjson [flags] file.db [type] >export.json
-	       store dumpall file.db
+	usage: bstore types file.db
+	       bstore drop file.db type
+	       bstore dumptype file.db type
+	       bstore keys file.db type
+	       bstore records file.db type
+	       bstore record file.db type key
+	       bstore exportcsv file.db type >export.csv
+	       bstore exportjson [flags] file.db [type] >export.json
+	       bstore dumpall file.db
 */
 package main

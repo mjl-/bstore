@@ -24,15 +24,15 @@ func xcheckf(err error, format string, args ...any) {
 }
 
 func usage() {
-	log.Println("usage: store types file.db")
-	log.Println("       store drop file.db type")
-	log.Println("       store dumptype file.db type")
-	log.Println("       store keys file.db type")
-	log.Println("       store records file.db type")
-	log.Println("       store record file.db type key")
-	log.Println("       store exportcsv file.db type >export.csv")
-	log.Println("       store exportjson [flags] file.db [type] >export.json")
-	log.Println("       store dumpall file.db")
+	log.Println("usage: bstore types file.db")
+	log.Println("       bstore drop file.db type")
+	log.Println("       bstore dumptype file.db type")
+	log.Println("       bstore keys file.db type")
+	log.Println("       bstore records file.db type")
+	log.Println("       bstore record file.db type key")
+	log.Println("       bstore exportcsv file.db type >export.csv")
+	log.Println("       bstore exportjson [flags] file.db [type] >export.json")
+	log.Println("       bstore dumpall file.db")
 	flag.PrintDefaults()
 	os.Exit(2)
 }
