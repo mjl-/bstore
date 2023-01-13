@@ -387,17 +387,18 @@ func (tx *Tx) update(rb *bolt.Bucket, st storeType, rv, rov reflect.Value, k []b
 // A writable Tx can be committed or rolled back. A read-only transaction must
 // always be rolled back.
 func (db *DB) Begin(writable bool) (*Tx, error) {
-	tx, err := db.bdb.Begin(writable)
+	btx, err := db.bdb.Begin(writable)
 	if err != nil {
 		return nil, err
 	}
 	db.typesMutex.RLock()
+	tx := &Tx{db: db, btx: btx}
 	if writable {
-		db.stats.Writes++
+		tx.stats.Writes++
 	} else {
-		db.stats.Reads++
+		tx.stats.Reads++
 	}
-	return &Tx{db: db, btx: tx}, nil
+	return tx, nil
 }
 
 // Rollback aborts and cancels any changes made in this transaction.

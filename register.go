@@ -162,7 +162,7 @@ func (db *DB) Register(typeValues ...any) error {
 					// bucket sequence (that we use for autoincrement) is set to
 					// the highest value stored so far.
 					if st.Current.Noauto && !tv.Noauto {
-						db.stats.Records.Cursor++
+						tx.stats.Records.Cursor++
 						bk, _ := rb.Cursor().Last()
 						if bk != nil {
 							rv := reflect.New(tv.Fields[0].structField.Type).Elem()
