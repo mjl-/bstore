@@ -442,35 +442,35 @@ func typeName(t reflect.Type) (string, error) {
 
 // Get value for a key. For insert a next sequence may be generated for the
 // primary key.
-func (tv typeVersion) keyValue(tx *Tx, rv reflect.Value, insert bool, rb *bolt.Bucket) ([]byte, reflect.Value, error) {
+func (tv typeVersion) keyValue(tx *Tx, rv reflect.Value, insert bool, rb *bolt.Bucket) ([]byte, reflect.Value, bool, error) {
 	f := tv.Fields[0]
 	krv := rv.FieldByIndex(f.structField.Index)
 	var seq bool
 	if krv.IsZero() {
 		if !insert {
-			return nil, reflect.Value{}, fmt.Errorf("%w: primary key can not be zero value", ErrParam)
+			return nil, reflect.Value{}, seq, fmt.Errorf("%w: primary key can not be zero value", ErrParam)
 		}
 		if tv.Noauto {
-			return nil, reflect.Value{}, fmt.Errorf("%w: primary key cannot be zero value without autoincrement", ErrParam)
+			return nil, reflect.Value{}, seq, fmt.Errorf("%w: primary key cannot be zero value without autoincrement", ErrParam)
 		}
 		id, err := rb.NextSequence()
 		if err != nil {
-			return nil, reflect.Value{}, fmt.Errorf("next primary key: %w", err)
+			return nil, reflect.Value{}, seq, fmt.Errorf("next primary key: %w", err)
 		}
 		switch f.Type.Kind {
 		case kindInt, kindInt8, kindInt16, kindInt32, kindInt64:
 			if krv.OverflowInt(int64(id)) {
-				return nil, reflect.Value{}, fmt.Errorf("%w: next primary key sequence does not fit in type", ErrSeq)
+				return nil, reflect.Value{}, seq, fmt.Errorf("%w: next primary key sequence does not fit in type", ErrSeq)
 			}
 			krv.SetInt(int64(id))
 		case kindUint, kindUint8, kindUint16, kindUint32, kindUint64:
 			if krv.OverflowUint(id) {
-				return nil, reflect.Value{}, fmt.Errorf("%w: next primary key sequence does not fit in type", ErrSeq)
+				return nil, reflect.Value{}, seq, fmt.Errorf("%w: next primary key sequence does not fit in type", ErrSeq)
 			}
 			krv.SetUint(id)
 		default:
 			// todo: should check this during register.
-			return nil, reflect.Value{}, fmt.Errorf("%w: unsupported autoincrement primary key type %v", ErrZero, f.Type.Kind)
+			return nil, reflect.Value{}, seq, fmt.Errorf("%w: unsupported autoincrement primary key type %v", ErrZero, f.Type.Kind)
 		}
 		seq = true
 	} else if !tv.Noauto && insert {
@@ -482,14 +482,14 @@ func (tv typeVersion) keyValue(tx *Tx, rv reflect.Value, insert bool, rb *bolt.B
 			v := krv.Int()
 			if v > 0 && uint64(v) > rb.Sequence() {
 				if err := rb.SetSequence(uint64(v)); err != nil {
-					return nil, reflect.Value{}, fmt.Errorf("%w: updating sequence: %s", ErrStore, err)
+					return nil, reflect.Value{}, seq, fmt.Errorf("%w: updating sequence: %s", ErrStore, err)
 				}
 			}
 		case kindUint, kindUint8, kindUint16, kindUint32, kindUint64:
 			v := krv.Uint()
 			if v > rb.Sequence() {
 				if err := rb.SetSequence(v); err != nil {
-					return nil, reflect.Value{}, fmt.Errorf("%w: updating sequence: %s", ErrStore, err)
+					return nil, reflect.Value{}, seq, fmt.Errorf("%w: updating sequence: %s", ErrStore, err)
 				}
 			}
 		}
@@ -497,15 +497,15 @@ func (tv typeVersion) keyValue(tx *Tx, rv reflect.Value, insert bool, rb *bolt.B
 
 	k, err := packPK(krv)
 	if err != nil {
-		return nil, reflect.Value{}, err
+		return nil, reflect.Value{}, seq, err
 	}
 	if seq {
 		tx.stats.Records.Get++
 		if rb.Get(k) != nil {
-			return nil, reflect.Value{}, fmt.Errorf("%w: internal error: next sequence value is already present", ErrUnique)
+			return nil, reflect.Value{}, seq, fmt.Errorf("%w: internal error: next sequence value is already present", ErrUnique)
 		}
 	}
-	return k, krv, err
+	return k, krv, seq, err
 }
 
 // Read calls function fn with a new read-only transaction, ensuring transaction rollback.

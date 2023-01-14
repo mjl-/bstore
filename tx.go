@@ -161,7 +161,7 @@ func (tx *Tx) Get(values ...any) error {
 		if err != nil {
 			return err
 		}
-		k, _, err := st.Current.keyValue(tx, rv, false, rb)
+		k, _, _, err := st.Current.keyValue(tx, rv, false, rb)
 		if err != nil {
 			return err
 		}
@@ -202,7 +202,7 @@ func (tx *Tx) Delete(values ...any) error {
 		if err != nil {
 			return err
 		}
-		k, _, err := st.Current.keyValue(tx, rv, false, rb)
+		k, _, _, err := st.Current.keyValue(tx, rv, false, rb)
 		if err != nil {
 			return err
 		}
@@ -314,7 +314,7 @@ func (tx *Tx) put(st storeType, rv reflect.Value, insert bool) error {
 	if err != nil {
 		return err
 	}
-	k, krv, err := st.Current.keyValue(tx, rv, insert, rb)
+	k, krv, seq, err := st.Current.keyValue(tx, rv, insert, rb)
 	if err != nil {
 		return err
 	}
@@ -324,7 +324,12 @@ func (tx *Tx) put(st storeType, rv reflect.Value, insert bool) error {
 		if bv != nil {
 			return fmt.Errorf("%w: record already exists", ErrUnique)
 		}
-		return tx.insert(rb, st, rv, krv, k)
+		err := tx.insert(rb, st, rv, krv, k)
+		if err != nil && seq {
+			// Zero out the generated sequence.
+			krv.Set(reflect.Zero(krv.Type()))
+		}
+		return err
 	} else {
 		tx.stats.Records.Get++
 		bv := rb.Get(k)

@@ -263,6 +263,7 @@ func TestStore(t *testing.T) {
 
 		err = tx.Insert(&u)
 		tneed(t, err, ErrUnique, "insert dup")
+		tcompare(t, nil, u.ID, int64(123), "id unchanged")
 
 		uptrs := User{
 			Name:       "mjl2",
@@ -338,8 +339,10 @@ func TestStore(t *testing.T) {
 		err = tx.Delete("bogus")
 		tneed(t, err, ErrParam, "delete on non-struct/structptr")
 
-		err = tx.Insert(&User{Name: "unique1"})
+		u3 := User{Name: "unique1"}
+		err = tx.Insert(&u3)
 		tneed(t, err, ErrZero, "inserting with zero value")
+		tcompare(t, nil, u3.ID, int64(0), "zero id")
 
 		return nil
 	})
