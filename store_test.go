@@ -775,13 +775,9 @@ func TestTypeVersions(t *testing.T) {
 	reopen(User{})
 	checkTypes("1")
 
-	err = db.Write(func(tx *Tx) error {
-		u := User{Name: "hi"}
-		err := tx.Insert(&u)
-		tcheck(t, err, "insert user")
-		return nil
-	})
-	tcheck(t, err, "insert first user")
+	u := User{Name: "hi"}
+	err = db.Insert(&u)
+	tcheck(t, err, "insert user")
 
 	reopen(User2{})
 	checkTypes("1,2")
@@ -803,12 +799,8 @@ func TestTypeVersions(t *testing.T) {
 	reopen(User2{})
 	checkTypes("1,2,3,4")
 
-	err = db.Read(func(tx *Tx) error {
-		_, err := QueryTx[User2](tx).List()
-		tcheck(t, err, "all")
-		return nil
-	})
-	tcheck(t, err, "list again")
+	_, err = QueryDB[User2](db).List()
+	tcheck(t, err, "all")
 
 	reopen(User3{})
 	checkTypes("1,2,3,4,5")
@@ -1559,12 +1551,8 @@ func TestDropReferenced(t *testing.T) {
 	err = db.Drop("Group")
 	tcheck(t, err, "drop Group")
 
-	err = db.Read(func(tx *Tx) error {
-		_, err := QueryTx[User](tx).List()
-		tneed(t, err, ErrType, "reading removed type")
-		return nil
-	})
-	tcheck(t, err, "read")
+	_, err = QueryDB[User](db).List()
+	tneed(t, err, ErrType, "reading removed type")
 }
 
 func TestCompatible(t *testing.T) {
@@ -1834,12 +1822,8 @@ func TestAddNonzero(t *testing.T) {
 	db, err = topen(t, "testdata/addnonzero.db", nil, User{})
 	tcheck(t, err, "open")
 
-	err = db.Write(func(tx *Tx) error {
-		err = tx.Insert(&User{})
-		tcheck(t, err, "insert user")
-		return nil
-	})
-	tcheck(t, err, "write")
+	err = db.Insert(&User{})
+	tcheck(t, err, "insert user")
 
 	tclose(t, db)
 	_, err = topen(t, "testdata/addnonzero.db", nil, User2{})
@@ -1934,13 +1918,8 @@ func TestWriteto(t *testing.T) {
 	defer tclose(t, db)
 
 	u := User{}
-	err = db.Write(func(tx *Tx) error {
-		err := tx.Insert(&u)
-		tcheck(t, err, "insert")
-
-		return nil
-	})
-	tcheck(t, err, "write")
+	err = db.Insert(&u)
+	tcheck(t, err, "insert")
 
 	err = db.Read(func(tx *Tx) error {
 		f, err := os.Create("testdata/writeto2.db")
