@@ -908,55 +908,72 @@ func (st storeType) prepare(ntv *typeVersion) {
 // prepare for use with parse.
 func (tv typeVersion) prepare(ntv *typeVersion, later [][]field) {
 	for i, f := range tv.Fields {
-		nlater, skip := lookupLater(f.Name, later)
+		nlater, nmvlater, skip := lookupLater(f.Name, later)
 		if skip {
 			continue
 		}
-		tv.Fields[i].prepare(ntv.Fields, nlater)
+		tv.Fields[i].prepare(ntv.Fields, nlater, nmvlater)
 	}
 }
 
-func lookupLater(name string, later [][]field) ([][]field, bool) {
+// Lookup field "name" in "later", which is list of future fields.
+// If the named field disappears in a future field list, skip will be true.
+// Otherwise, in each future list of fields, the matching field is looked up and
+// returned. For map types, the returned first list is for keys and second list for
+// map values. For other types, only the first list is set.
+func lookupLater(name string, later [][]field) (nlater, nmvlater [][]field, skip bool) {
 	// If a later typeVersion did not have this field, we will not parse it into the
 	// latest reflect type. This is old data that was discarded with a typeVersion
 	// change.
-	var nlater [][]field
 tv:
 	for _, newerFields := range later {
 		for _, nf := range newerFields {
 			if nf.Name == name {
-				nlater = append(nlater, nf.Type.Fields)
+				n, nmv := nf.Type.laterFields()
+				nlater = append(nlater, n)
+				nmvlater = append(nmvlater, nmv)
 				continue tv
 			}
 		}
-		return nil, true
+		return nil, nil, true
 	}
-	return nlater, false
+	return nlater, nmvlater, false
 }
 
-func (f *field) prepare(nfields []field, later [][]field) {
+func (f *field) prepare(nfields []field, later, mvlater [][]field) {
 	for _, nf := range nfields {
 		if nf.Name == f.Name {
 			f.structField = nf.structField
-			f.Type.prepare(&nf.Type, later)
+			f.Type.prepare(&nf.Type, later, mvlater)
 		}
 	}
 }
 
-func (ft fieldType) prepare(nft *fieldType, later [][]field) {
+func (ft fieldType) laterFields() (later, mvlater []field) {
+	if ft.MapKey != nil {
+		later, _ = ft.MapKey.laterFields()
+		mvlater, _ = ft.MapValue.laterFields()
+		return later, mvlater
+	} else if ft.List != nil {
+		return ft.List.laterFields()
+	}
+	return ft.Fields, nil
+}
+
+func (ft fieldType) prepare(nft *fieldType, later, mvlater [][]field) {
 	for i, f := range ft.Fields {
-		nlater, skip := lookupLater(f.Name, later)
+		nlater, nmvlater, skip := lookupLater(f.Name, later)
 		if skip {
 			continue
 		}
-		ft.Fields[i].prepare(nft.Fields, nlater)
+		ft.Fields[i].prepare(nft.Fields, nlater, nmvlater)
 	}
 	if ft.MapKey != nil {
-		ft.MapKey.prepare(nft.MapKey, later)
-		ft.MapValue.prepare(nft.MapValue, later)
+		ft.MapKey.prepare(nft.MapKey, later, nil)
+		ft.MapValue.prepare(nft.MapValue, mvlater, nil)
 	}
 	if ft.List != nil {
-		ft.List.prepare(nft.List, later)
+		ft.List.prepare(nft.List, later, mvlater)
 	}
 }
 

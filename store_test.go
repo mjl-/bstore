@@ -1351,6 +1351,16 @@ func TestChangeNonzero(t *testing.T) {
 		Slice  []Elem2         `bstore:"nonzero"`
 	}
 
+	clone := func(v User2) User {
+		var b bytes.Buffer
+		err := gob.NewEncoder(&b).Encode(v)
+		tcheck(t, err, "encode")
+		var n User
+		err = gob.NewDecoder(&b).Decode(&n)
+		tcheck(t, err, "decode")
+		return n
+	}
+
 	testValue := func(good User, bad User2) {
 		t.Helper()
 
@@ -1358,79 +1368,57 @@ func TestChangeNonzero(t *testing.T) {
 		db, err := topen(t, "testdata/changenonzero.db", nil, User{})
 		tcheck(t, err, "open")
 
-		err = db.Write(func(tx *Tx) error {
-			err := tx.Insert(&good)
-			tcheck(t, err, "insert good user")
-			return nil
-		})
-		tcheck(t, err, "write1")
+		err = db.Insert(&good)
+		tcheck(t, err, "insert good user")
 
 		tclose(t, db)
 		db, err = topen(t, "testdata/changenonzero.db", nil, User2{})
 		tcheck(t, err, "reopen without zero values") // Should succeed, no zero values.
 
-		err = db.Write(func(tx *Tx) error {
-			err := tx.Insert(&bad)
-			tneed(t, err, ErrZero, "inserting zero value")
-			return nil
-		})
-		tcheck(t, err, "write2")
+		err = db.Insert(&bad)
+		tneed(t, err, ErrZero, "inserting zero value")
 
 		tclose(t, db)
 		db, err = topen(t, "testdata/changenonzero.db", nil, User{})
 		tcheck(t, err, "reopen with original type")
 
-		err = db.Write(func(tx *Tx) error {
-			good.ID = 0
-			err := tx.Insert(&good)
-			tcheck(t, err, "insert good user")
-			return nil
-		})
-		tcheck(t, err, "write3")
+		bad2 := clone(bad)
+		err = db.Insert(&bad2)
+		tcheck(t, err, "insert user with zero value")
 
 		tclose(t, db)
 		_, err = topen(t, "testdata/changenonzero.db", nil, User2{})
 		tneed(t, err, ErrZero, "reopen with invalid nonzero values")
 	}
 
-	clone := func(v User2) User2 {
-		var b bytes.Buffer
-		err := gob.NewEncoder(&b).Encode(v)
-		tcheck(t, err, "encode")
-		var n User2
-		err = gob.NewDecoder(&b).Decode(&n)
-		tcheck(t, err, "decode")
-		return n
-	}
-
 	good := User{0, "a", 1, []byte("hi"), Sub{"a"}, map[Key]Value{{1}: {[]byte("a")}}, []Elem{{1}}}
 	good2 := User2{0, "a", 1, []byte("hi"), Sub2{"a"}, map[Key2]Value2{{1}: {[]byte("a")}}, []Elem2{{1}}}
 
-	badstr := clone(good2)
+	badstr := good2
 	badstr.Name = ""
 	testValue(good, badstr)
 
-	badint := clone(good2)
+	badint := good2
 	badint.Int = 0
 	testValue(good, badint)
 
-	badbytes := clone(good2)
+	badbytes := good2
 	badbytes.Bytes = nil
 	testValue(good, badbytes)
 
-	badstruct := clone(good2)
+	badstruct := good2
 	badstruct.Struct.Name = ""
 	testValue(good, badstruct)
 
-	badkey := clone(good2)
+	badkey := good2
 	badkey.Map = map[Key2]Value2{{0}: {[]byte("a")}}
 	testValue(good, badkey)
 
-	badvalue := clone(good2)
+	badvalue := good2
 	badvalue.Map = map[Key2]Value2{{1}: {nil}}
 	testValue(good, badvalue)
 
-	badslice := clone(good2)
+	badslice := good2
 	badslice.Slice = []Elem2{{0}}
 	testValue(good, badslice)
 }
@@ -2286,6 +2274,87 @@ func TestChangeType(t *testing.T) {
 	v2 := T2{ID: v0.ID, S: "s"}
 	err = db.Get(&v2)
 	tcompare(t, err, v2, T2{v0.ID, "", "s"}, "get")
+	tclose(t, db)
+}
+
+// Test that list and map types get their fields propagated in newer type
+// versions.
+func TestChangeTypeListMap(t *testing.T) {
+	type Key struct {
+		Name string
+	}
+	type Value struct {
+		Value int
+	}
+	type List2 struct {
+		Map map[Key]Value
+	}
+	type Sub struct {
+		Elems []List2
+	}
+	type List struct {
+		Sub Sub
+	}
+	type T0 struct {
+		ID    int64 `bstore:"typename T"`
+		A     string
+		List  []List
+		List2 []List2
+		Map   map[Key]map[Key]Value
+	}
+
+	type T1 struct {
+		ID    int64  `bstore:"typename T"`
+		B     string // Changed.
+		List  []List
+		List2 []List2
+		Map   map[Key]map[Key]Value
+	}
+
+	path := "testdata/changetypelistmap.db"
+	os.Remove(path)
+
+	db, err := topen(t, path, nil, T0{})
+	tcheck(t, err, "open")
+	v0 := T0{
+		A: "test",
+		List: []List{
+			{
+				Sub{
+					Elems: []List2{
+						{
+							Map: map[Key]Value{
+								{"x"}: {1},
+							},
+						},
+					},
+				},
+			},
+		},
+		List2: []List2{
+			{
+				Map: map[Key]Value{
+					{"y"}: {2},
+				},
+			},
+		},
+		Map: map[Key]map[Key]Value{
+			{"y"}: {
+				{"a"}: {3},
+			},
+		},
+	}
+	err = db.Insert(&v0)
+	tcheck(t, err, "insert")
+	tclose(t, db)
+
+	db, err = topen(t, path, nil, T1{})
+	tcheck(t, err, "open with renamed field of different type")
+	v1 := T1{ID: v0.ID}
+	err = db.Get(&v1)
+	tcompare(t, err, v1.List, v0.List, "get")
+	tcompare(t, err, v1.List2, v0.List2, "get")
+	tcompare(t, err, v1.Map, v0.Map, "get")
 	tclose(t, db)
 }
 
