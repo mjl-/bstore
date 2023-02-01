@@ -3,13 +3,16 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"reflect"
 	"sort"
+	"unicode/utf8"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -207,7 +210,40 @@ func exportcsv(args []string) {
 			record = make([]string, len(fields))
 		}
 		for i, f := range fields {
-			record[i] = fmt.Sprintf("%v", v[f]) // todo: as json when non-basic type?
+			var s string
+			record[i] = ""
+			switch fv := v[f].(type) {
+			case []byte:
+				if len(fv) == 0 {
+					continue
+				}
+				if utf8.Valid(fv) {
+					s = fmt.Sprintf("%q", fv)
+				} else {
+					s = base64.StdEncoding.EncodeToString(fv)
+				}
+			case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, uintptr, float32, float64, complex64, complex128, string:
+				s = fmt.Sprintf("%v", v[f])
+			default:
+				rv := reflect.ValueOf(v[f])
+				switch rv.Kind() {
+				case reflect.Slice, reflect.Map:
+					if rv.Len() == 0 {
+						continue
+					}
+				case reflect.Ptr:
+					if rv.IsNil() {
+						continue
+					}
+				}
+				buf, err := json.Marshal(v[f])
+				if err != nil {
+					s = fmt.Sprintf("%v", v[f])
+				} else {
+					s = string(buf)
+				}
+			}
+			record[i] = s
 		}
 		return w.Write(record)
 	})
