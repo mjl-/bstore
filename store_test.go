@@ -355,6 +355,138 @@ func TestStore(t *testing.T) {
 	}
 }
 
+func TestBoolptr(t *testing.T) {
+	type Boolptr struct {
+		ID    uint32
+		Value *bool
+	}
+	type Boolptr2 struct {
+		ID    uint32 `bstore:"typename Boolptr"`
+		Value bool
+	}
+	type Boolptr3 struct {
+		ID uint32 `bstore:"typename Boolptr"`
+	}
+
+	os.Remove("testdata/boolptr.db")
+	db, err := topen(t, "testdata/boolptr.db", nil, Boolptr{})
+	tcheck(t, err, "open")
+
+	var n, tr, f Boolptr
+	xtrue := true
+	xfalse := false
+
+	err = db.Write(func(tx *Tx) error {
+		n = Boolptr{Value: nil}
+		err := tx.Insert(&n)
+		tcheck(t, err, "insert nil")
+
+		tr = Boolptr{Value: &xtrue}
+		err = tx.Insert(&tr)
+		tcheck(t, err, "insert true ptr")
+
+		f = Boolptr{Value: &xfalse}
+		err = tx.Insert(&f)
+		tcheck(t, err, "insert false ptr")
+
+		n = Boolptr{ID: n.ID}
+		err = tx.Get(&n)
+		tcompare(t, err, n, Boolptr{ID: n.ID}, "nil boolptr")
+
+		tr = Boolptr{ID: tr.ID}
+		err = tx.Get(&tr)
+		tcompare(t, err, tr, Boolptr{ID: tr.ID, Value: &xtrue}, "true boolptr")
+
+		f = Boolptr{ID: f.ID}
+		err = tx.Get(&f)
+		tcompare(t, err, f, Boolptr{ID: f.ID, Value: &xfalse}, "false boolptr")
+		return nil
+	})
+	tcheck(t, err, "write")
+
+	tclose(t, db)
+	db, err = topen(t, "testdata/boolptr.db", nil, Boolptr2{})
+	tcheck(t, err, "open")
+
+	err = db.Write(func(tx *Tx) error {
+		n2 := Boolptr2{ID: n.ID}
+		err = tx.Get(&n2)
+		tcompare(t, err, n2, Boolptr2{ID: n.ID}, "nil")
+
+		tr2 := Boolptr2{ID: tr.ID}
+		err = tx.Get(&tr2)
+		tcompare(t, err, tr2, Boolptr2{ID: tr.ID, Value: true}, "true")
+
+		f2 := Boolptr2{ID: f.ID}
+		err = tx.Get(&f2)
+		tcompare(t, err, f2, Boolptr2{ID: f.ID}, "false")
+
+		for _, e := range []*Boolptr2{&n2, &tr2, &f2} {
+			err = tx.Delete(e)
+			tcheck(t, err, "delete")
+			err = tx.Insert(e)
+			tcheck(t, err, "insert")
+		}
+
+		return nil
+	})
+	tcheck(t, err, "write")
+
+	tclose(t, db)
+	db, err = topen(t, "testdata/boolptr.db", nil, Boolptr{})
+	tcheck(t, err, "open")
+
+	err = db.Write(func(tx *Tx) error {
+		n = Boolptr{ID: n.ID}
+		err = tx.Get(&n)
+		tcompare(t, err, n, Boolptr{ID: n.ID}, "nil")
+
+		tr := Boolptr{ID: tr.ID}
+		err = tx.Get(&tr)
+		tcompare(t, err, tr, Boolptr{ID: tr.ID, Value: &xtrue}, "true")
+
+		f := Boolptr{ID: f.ID}
+		err = tx.Get(&f)
+		tcompare(t, err, f, Boolptr{ID: f.ID}, "false") // Now nil...
+
+		f.Value = &xfalse
+
+		// Insert again, so we can test skipping the fields in the next read.
+		for _, e := range []*Boolptr{&n, &tr, &f} {
+			err = tx.Delete(e)
+			tcheck(t, err, "delete")
+			err = tx.Insert(e)
+			tcheck(t, err, "insert")
+		}
+
+		return nil
+	})
+	tcheck(t, err, "write")
+
+	tclose(t, db)
+	db, err = topen(t, "testdata/boolptr.db", nil, Boolptr3{})
+	tcheck(t, err, "open")
+
+	err = db.Write(func(tx *Tx) error {
+		n3 := Boolptr3{ID: n.ID}
+		err = tx.Get(&n3)
+		tcompare(t, err, n3, Boolptr3{ID: n.ID}, "nil")
+
+		tr3 := Boolptr3{ID: tr.ID}
+		err = tx.Get(&tr3)
+		tcompare(t, err, tr3, Boolptr3{ID: tr.ID}, "true")
+
+		f3 := Boolptr3{ID: f.ID}
+		err = tx.Get(&f3)
+		tcompare(t, err, f3, Boolptr3{ID: f.ID}, "false")
+
+		return nil
+	})
+	tcheck(t, err, "write")
+
+	tclose(t, db)
+}
+
 func TestRegister(t *testing.T) {
 	type OK struct {
 		ID int

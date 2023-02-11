@@ -14,13 +14,14 @@ func TestExport(t *testing.T) {
 	}
 
 	type User2 struct {
-		ID     int
-		String string
-		Time   time.Time
-		Bool   bool
-		Uint   uint64
-		Bytes  []byte
-		Struct struct {
+		ID      int
+		String  string
+		Time    time.Time
+		Bool    bool
+		Boolptr *bool
+		Uint    uint64
+		Bytes   []byte
+		Struct  struct {
 			Value int
 		}
 		Slice  []string
@@ -53,11 +54,13 @@ func TestExport(t *testing.T) {
 		err = tx.Insert(&u2)
 		tcheck(t, err, "insert zero")
 
+		xfalse := false
 		u3 := User2{
 			0,
 			"test",
 			time.Now(),
 			true,
+			&xfalse,
 			123,
 			[]byte("hi"),
 			struct{ Value int }{1},
@@ -77,6 +80,7 @@ func TestExport(t *testing.T) {
 			"test",
 			time.Now(),
 			true,
+			nil,
 			123,
 			[]byte{},
 			struct{ Value int }{0},
@@ -105,7 +109,7 @@ func TestExport(t *testing.T) {
 	tcompare(t, err, xids2, ids2, "keys")
 
 	var fields []string
-	expFields := []string{"ID", "String", "Time", "Bool", "Uint", "Bytes", "Struct", "Slice", "Slice2", "Map", "Map2", "Float32", "Float64", "BM"}
+	expFields := []string{"ID", "String", "Time", "Bool", "Boolptr", "Uint", "Bytes", "Struct", "Slice", "Slice2", "Map", "Map2", "Float32", "Float64", "BM"}
 	xids2 = nil
 	err = db.Records("User2", &fields, func(v map[string]any) error {
 		xids2 = append(xids2, v["ID"].(int))
