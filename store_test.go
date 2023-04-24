@@ -2519,6 +2519,39 @@ func TestChangeTypeSub(t *testing.T) {
 	tclose(t, db)
 }
 
+func TestChangeRef(t *testing.T) {
+	type T struct {
+		ID      int64 `bstore:"typename T"`
+		OtherID int32 `bstore:"nonzero,ref Other"`
+	}
+	type T1 struct {
+		ID      int64 `bstore:"typename T"`
+		OtherID int32 `bstore:"nonzero,ref Other1"`
+	}
+	type Other struct {
+		ID int32
+	}
+	type Other1 struct {
+		ID int32
+	}
+
+	path := "testdata/changeref.db"
+	os.Remove(path)
+
+	db, err := topen(t, path, nil, T{}, Other{})
+	tcheck(t, err, "open")
+	o0 := Other{}
+	err = db.Insert(&o0)
+	tcheck(t, err, "insert")
+	v0 := T{OtherID: o0.ID}
+	err = db.Insert(&v0)
+	tcheck(t, err, "insert")
+	tclose(t, db)
+
+	_, err = topen(t, path, nil, T1{}, Other1{})
+	tneed(t, err, ErrStore, "opening database with formerly referenced type not registered")
+}
+
 func bcheck(b *testing.B, err error, msg string) {
 	if err != nil {
 		b.Fatalf("%s: %s", msg, err)

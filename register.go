@@ -271,8 +271,10 @@ func (db *DB) Register(typeValues ...any) error {
 				if _, ok := ntv.references[name]; ok {
 					continue
 				}
-				if _, ok := registered[name].Current.ReferencedBy[ntv.name]; !ok {
-					return fmt.Errorf("%w: previously referenced type %q not present in %q", ErrStore, ntv.name, name)
+				if rtv, ok := registered[name]; !ok {
+					return fmt.Errorf("%w: type %q formerly referenced by %q not yet registered", ErrStore, name, ntv.name)
+				} else if _, ok := rtv.Current.ReferencedBy[ntv.name]; !ok {
+					return fmt.Errorf("%w: formerly referenced type %q missing from %q", ErrStore, name, ntv.name)
 				}
 				// note: we are updating the previous tv's ReferencedBy, not tidy but it is safe.
 				delete(registered[name].Current.ReferencedBy, ntv.name)
