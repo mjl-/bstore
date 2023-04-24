@@ -237,7 +237,7 @@ func (db *DB) Register(typeValues ...any) error {
 		// We cannot just recalculate the ReferencedBy, because the whole point is to
 		// detect types that are missing in this Register.
 		updateReferencedBy := map[string]struct{}{}
-		for _, ntv := range ntypeversions {
+		for ntname, ntv := range ntypeversions {
 			otv := otypeversions[ntv.name] // Can be nil, on first register.
 
 			// Look for references that were added.
@@ -251,6 +251,59 @@ func (db *DB) Register(typeValues ...any) error {
 				if _, ok := registered[name].Current.ReferencedBy[ntv.name]; ok {
 					return fmt.Errorf("%w: type %q introduces reference to %q but is already marked as ReferencedBy in that type", ErrStore, ntv.name, name)
 				}
+
+				// Verify that the new reference does not violate the foreign key constraint.
+				var foundField bool
+				for _, f := range ntv.Fields {
+					for _, rname := range f.References {
+						if rname != name {
+							continue
+						}
+
+						foundField = true
+
+						// For newly added references, check they are valid.
+						b, err := tx.recordsBucket(ntname, ntv.fillPercent)
+						if err != nil {
+							return fmt.Errorf("%w: bucket for type %s with field with new reference: %v", ErrStore, ntname, err)
+						}
+
+						rb, err := tx.recordsBucket(name, registered[name].Current.fillPercent)
+						if err != nil {
+							return fmt.Errorf("%w: bucket for referenced type %s: %v", ErrStore, name, err)
+						}
+
+						nst := registered[ntname]
+						rv := reflect.New(nst.Type).Elem()
+						err = b.ForEach(func(bk, bv []byte) error {
+							tx.stats.Records.Cursor++
+
+							if err := nst.parse(rv, bv); err != nil {
+								return fmt.Errorf("parsing record for %s: %w", ntname, err)
+							}
+							frv := rv.FieldByIndex(f.structField.Index)
+							if frv.IsZero() {
+								return nil
+							}
+							rpk, err := packPK(frv)
+							if err != nil {
+								return fmt.Errorf("packing pk for referenced type %s: %w", name, err)
+							}
+							tx.stats.Records.Cursor++
+							if rb.Get(rpk) == nil {
+								return fmt.Errorf("%w: value %v not in %s", ErrReference, frv.Interface(), name)
+							}
+							return nil
+						})
+						if err != nil {
+							return fmt.Errorf("%w: ensuring referential integrity for newly added reference of %s.%s", err, ntname, f.Name)
+						}
+					}
+				}
+				if !foundField {
+					return fmt.Errorf("%w: could not find field causing newly referenced type %s in type %s", ErrStore, name, ntname)
+				}
+
 				// note: we are updating the previous tv's ReferencedBy, not tidy but it is safe.
 				registered[name].Current.ReferencedBy[ntv.name] = struct{}{}
 				updateReferencedBy[name] = struct{}{}

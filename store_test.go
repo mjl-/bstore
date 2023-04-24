@@ -2538,10 +2538,12 @@ func TestChangeRef(t *testing.T) {
 	path := "testdata/changeref.db"
 	os.Remove(path)
 
-	db, err := topen(t, path, nil, T{}, Other{})
+	db, err := topen(t, path, nil, T{}, Other{}, Other1{})
 	tcheck(t, err, "open")
 	o0 := Other{}
 	err = db.Insert(&o0)
+	tcheck(t, err, "insert")
+	err = db.Insert(&Other1{})
 	tcheck(t, err, "insert")
 	v0 := T{OtherID: o0.ID}
 	err = db.Insert(&v0)
@@ -2550,6 +2552,51 @@ func TestChangeRef(t *testing.T) {
 
 	_, err = topen(t, path, nil, T1{}, Other1{})
 	tneed(t, err, ErrStore, "opening database with formerly referenced type not registered")
+}
+
+func TestAddRef(t *testing.T) {
+	type T struct {
+		ID      int64 `bstore:"typename T"`
+		OtherID int32 `bstore:"nonzero"`
+	}
+	type T1 struct {
+		ID      int64 `bstore:"typename T"`
+		OtherID int32 `bstore:"nonzero,ref Other"`
+	}
+	type Other struct {
+		ID int32
+	}
+
+	path := "testdata/addref.db"
+	os.Remove(path)
+
+	db, err := topen(t, path, nil, T{}, Other{})
+	tcheck(t, err, "open")
+	t0 := T{ID: 1, OtherID: 2} // Not a ref yet, so not actually dangling yet.
+	err = db.Insert(&t0)
+	tcheck(t, err, "insert")
+	tclose(t, db)
+
+	// Opening as T1 would cause the Other reference to become dangling.
+	_, err = topen(t, path, nil, T1{}, Other{})
+	tneed(t, err, ErrReference, "opening database with ref")
+
+	// Reopen with original types, and fix the referential problem.
+	db, err = topen(t, path, nil, T{}, Other{})
+	tcheck(t, err, "open")
+	err = db.Insert(&Other{ID: 2}) // t0 is no longer dangling.
+	tcheck(t, err, "insert")
+	tclose(t, db)
+
+	// Opening as T1 now succeeds.
+	db, err = topen(t, path, nil, T1{}, Other{})
+	tcheck(t, err, "open with valid new reference")
+	tclose(t, db)
+
+	// Dropping a ref is not a problem.
+	db, err = topen(t, path, nil, T{}, Other{})
+	tcheck(t, err, "open without ref again")
+	tclose(t, db)
 }
 
 func bcheck(b *testing.B, err error, msg string) {
