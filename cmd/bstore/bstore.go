@@ -250,9 +250,9 @@ func exportcsv(args []string) {
 	xcheckf(err, "records")
 	if w != nil {
 		w.Flush()
+		err = w.Error()
+		xcheckf(err, "write csv")
 	}
-	err = w.Error()
-	xcheckf(err, "write csv")
 }
 
 func exportjson(args []string) {
