@@ -689,26 +689,29 @@ func TestUnique(t *testing.T) {
 		err = tx.Insert(&b)
 		tcheck(t, err, "insert")
 
-		err = tx.Insert(&dup)
-		tneed(t, err, ErrUnique, "inserting with existing key")
+		return tx.Insert(&dup)
+	})
+	tneed(t, err, ErrUnique, "inserting with existing key")
 
-		err = tx.Delete(a)
-		tcheck(t, err, "delete")
+	err = db.Write(func(tx *Tx) error {
+		a := User{Name: "a"}
+		b := User{Name: "b"}
 
-		// No longer duplicate.
-		err = tx.Insert(&dup)
-		tcheck(t, err, "insert dup")
+		err := tx.Insert(&a)
+		tcheck(t, err, "insert")
+
+		err = tx.Insert(&b)
+		tcheck(t, err, "insert")
 
 		b.Name = "a"
-		err = tx.Update(&b)
-		tneed(t, err, ErrUnique, "updating with existing key")
-
-		err = tx.Insert(&User{Name: "test\u0000"})
-		tneed(t, err, ErrParam, "cannot have string with zero byte")
-
-		return nil
+		return tx.Update(&b)
 	})
-	tcheck(t, err, "db update")
+	tneed(t, err, ErrUnique, "updating with existing key")
+
+	err = db.Write(func(tx *Tx) error {
+		return tx.Insert(&User{Name: "test\u0000"})
+	})
+	tneed(t, err, ErrParam, "cannot have string with zero byte")
 }
 
 func TestReference(t *testing.T) {
@@ -2029,12 +2032,13 @@ func TestTransaction(t *testing.T) {
 
 	u.Field = "changed"
 	err = tx.Update(&u)
-	if err == nil {
-		t.Fatalf("did not get error for write on read-only transaction")
-	}
+	tneed(t, err, bolt.ErrTxNotWritable, "update on a read-only tx")
 
 	err = tx.Commit()
-	tneed(t, err, bolt.ErrTxNotWritable, "commit a read-only tx")
+	tneed(t, err, ErrTxBotched, "commit on botched tx")
+
+	err = tx.Rollback()
+	tneed(t, err, errTxClosed, "rollback on closed botched tx")
 
 	tx, err = db.Begin(false)
 	tcheck(t, err, "begin")
@@ -2596,6 +2600,72 @@ func TestAddRef(t *testing.T) {
 	// Dropping a ref is not a problem.
 	db, err = topen(t, path, nil, T{}, Other{})
 	tcheck(t, err, "open without ref again")
+	tclose(t, db)
+}
+
+// Check that failed and aborted write operations don't leave the transaction in
+// inconsistent state. In the past, a failed insert/update could leave indices in a
+// bad state, resulting in internal errors when querying.
+func TestBotched(t *testing.T) {
+	type T struct {
+		ID int64  `bstore:"typename T"`
+		A  string `bstore:"unique"`
+		B  string `bstore:"unique"`
+	}
+
+	path := "testdata/botched.db"
+	os.Remove(path)
+
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+	err = db.Write(func(tx *Tx) error {
+		err = tx.Insert(&T{A: "a0", B: "b"})
+		tcheck(t, err, "insert")
+
+		err = tx.Insert(&T{A: "a1", B: "b"})
+		tneed(t, err, ErrUnique, "inserting duplicate value")
+
+		err := QueryTx[T](tx).FilterEqual("A", "a0", "a1").ForEach(func(v T) error {
+			return nil
+		})
+		tneed(t, err, ErrTxBotched, "querytx on botched tx")
+
+		err = tx.Insert(&T{A: "a1", B: "b"})
+		tneed(t, err, ErrTxBotched, "insert on botched tx")
+
+		err = tx.Get(&T{ID: 1})
+		tneed(t, err, ErrTxBotched, "get on botched tx")
+
+		err = tx.Update(&T{ID: 1, A: "a1", B: "b"})
+		tneed(t, err, ErrTxBotched, "update on botched tx")
+
+		err = tx.Delete(&T{ID: 1})
+		tneed(t, err, ErrTxBotched, "delete on botched tx")
+
+		return nil
+	})
+	tneed(t, err, ErrTxBotched, "write tx")
+
+	err = db.Write(func(tx *Tx) error {
+		t0 := T{A: "a0", B: "b0"}
+		err = tx.Insert(&t0)
+		tcheck(t, err, "insert")
+
+		t1 := T{A: "a1", B: "b1"}
+		err = tx.Insert(&t1)
+		tcheck(t, err, "insert")
+
+		t1.B = "b0"
+		err = tx.Update(&t1)
+		tneed(t, err, ErrUnique, "updating duplicate value")
+
+		err = tx.Get(&T{ID: 1})
+		tneed(t, err, ErrTxBotched, "get on botched tx")
+
+		return nil
+	})
+	tneed(t, err, ErrTxBotched, "write tx")
+
 	tclose(t, db)
 }
 

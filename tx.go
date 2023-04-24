@@ -8,6 +8,28 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+// Mark a tx as botched, mentioning last actual error.
+// Used when write operations fail. The transaction can be in inconsistent
+// state, e.g. only some of a type's indicies may have been updated. We never
+// want to commit such transactions.
+func (tx *Tx) markError(err *error) {
+	if *err != nil && tx.err == nil {
+		tx.err = fmt.Errorf("%w (after %v)", ErrTxBotched, *err)
+	}
+}
+
+// Return if an error condition is set on on the transaction. To be called before
+// starting an operation.
+func (tx *Tx) error() error {
+	if tx.err != nil {
+		return tx.err
+	}
+	if tx.db == nil {
+		return errTxClosed
+	}
+	return nil
+}
+
 func (tx *Tx) structptr(value any) (reflect.Value, error) {
 	rv := reflect.ValueOf(value)
 	if !rv.IsValid() || rv.Kind() != reflect.Ptr || !rv.Elem().IsValid() || rv.Type().Elem().Kind() != reflect.Struct {
@@ -143,8 +165,8 @@ func (tx *Tx) addStats() {
 //
 // ErrAbsent is returned if the record does not exist.
 func (tx *Tx) Get(values ...any) error {
-	if tx.db == nil {
-		return errTxClosed
+	if err := tx.error(); err != nil {
+		return err
 	}
 
 	for _, value := range values {
@@ -184,8 +206,8 @@ func (tx *Tx) Get(values ...any) error {
 // ErrAbsent is returned if the record does not exist.
 // ErrReference is returned if another record still references this record.
 func (tx *Tx) Delete(values ...any) error {
-	if tx.db == nil {
-		return errTxClosed
+	if err := tx.error(); err != nil {
+		return err
 	}
 
 	for _, value := range values {
@@ -222,7 +244,7 @@ func (tx *Tx) Delete(values ...any) error {
 	return nil
 }
 
-func (tx *Tx) delete(rb *bolt.Bucket, st storeType, k []byte, rov reflect.Value) error {
+func (tx *Tx) delete(rb *bolt.Bucket, st storeType, k []byte, rov reflect.Value) (rerr error) {
 	// Check that anyone referencing this type does not reference this record.
 	for _, refBy := range st.Current.referencedBy {
 		if ib, err := tx.indexBucket(refBy); err != nil {
@@ -236,6 +258,7 @@ func (tx *Tx) delete(rb *bolt.Bucket, st storeType, k []byte, rov reflect.Value)
 	}
 
 	// Delete value from indices.
+	defer tx.markError(&rerr)
 	if err := tx.updateIndices(st.Current, k, rov, reflect.Value{}); err != nil {
 		return fmt.Errorf("removing from indices: %w", err)
 	}
@@ -250,8 +273,8 @@ func (tx *Tx) delete(rb *bolt.Bucket, st storeType, k []byte, rov reflect.Value)
 //
 // ErrAbsent is returned if the record does not exist.
 func (tx *Tx) Update(values ...any) error {
-	if tx.db == nil {
-		return errTxClosed
+	if err := tx.error(); err != nil {
+		return err
 	}
 
 	for _, value := range values {
@@ -282,8 +305,8 @@ func (tx *Tx) Update(values ...any) error {
 // ErrZero is returned if a nonzero constraint would be violated.
 // ErrReference is returned if another record is referenced that does not exist.
 func (tx *Tx) Insert(values ...any) error {
-	if tx.db == nil {
-		return errTxClosed
+	if err := tx.error(); err != nil {
+		return err
 	}
 
 	for _, value := range values {
@@ -344,7 +367,7 @@ func (tx *Tx) put(st storeType, rv reflect.Value, insert bool) error {
 	}
 }
 
-func (tx *Tx) insert(rb *bolt.Bucket, st storeType, rv, krv reflect.Value, k []byte) error {
+func (tx *Tx) insert(rb *bolt.Bucket, st storeType, rv, krv reflect.Value, k []byte) (rerr error) {
 	v, err := st.pack(rv)
 	if err != nil {
 		return err
@@ -352,6 +375,7 @@ func (tx *Tx) insert(rb *bolt.Bucket, st storeType, rv, krv reflect.Value, k []b
 	if err := tx.checkReferences(st.Current, k, reflect.Value{}, rv); err != nil {
 		return err
 	}
+	defer tx.markError(&rerr)
 	if err := tx.updateIndices(st.Current, k, reflect.Value{}, rv); err != nil {
 		return fmt.Errorf("updating indices for inserted value: %w", err)
 	}
@@ -363,7 +387,7 @@ func (tx *Tx) insert(rb *bolt.Bucket, st storeType, rv, krv reflect.Value, k []b
 	return nil
 }
 
-func (tx *Tx) update(rb *bolt.Bucket, st storeType, rv, rov reflect.Value, k []byte) error {
+func (tx *Tx) update(rb *bolt.Bucket, st storeType, rv, rov reflect.Value, k []byte) (rerr error) {
 	if st.Current.equal(rov, rv) {
 		return nil
 	}
@@ -375,6 +399,7 @@ func (tx *Tx) update(rb *bolt.Bucket, st storeType, rv, rov reflect.Value, k []b
 	if err := tx.checkReferences(st.Current, k, rov, rv); err != nil {
 		return err
 	}
+	defer tx.markError(&rerr)
 	if err := tx.updateIndices(st.Current, k, rov, rv); err != nil {
 		return fmt.Errorf("updating indices for updated record: %w", err)
 	}
@@ -422,9 +447,14 @@ func (tx *Tx) Rollback() error {
 
 // Commit commits changes made in the transaction to the database.
 // Statistics are added to its DB.
+// If the commit fails, or the transaction was botched, the transaction is
+// rolled back.
 func (tx *Tx) Commit() error {
 	if tx.db == nil {
 		return errTxClosed
+	} else if tx.err != nil {
+		tx.Rollback()
+		return tx.err
 	}
 
 	tx.addStats()

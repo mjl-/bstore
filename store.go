@@ -26,6 +26,7 @@ var (
 	ErrFinished     = errors.New("query finished")
 	ErrStore        = errors.New("internal/storage error") // E.g. when buckets disappear, possibly by external users of the underlying BoltDB database.
 	ErrParam        = errors.New("bad parameters")
+	ErrTxBotched    = errors.New("botched transaction") // Set on transactions after failed and aborted write operations.
 
 	errTxClosed    = errors.New("transaction is closed")
 	errNestedIndex = errors.New("struct tags index/unique only allowed at top-level structs")
@@ -52,7 +53,8 @@ type DB struct {
 //
 // A Tx is not safe for concurrent use.
 type Tx struct {
-	db  *DB // If nil, this transaction is closed.
+	err error // If not nil, operations return this error. Set when write operations fail, e.g. insert with constraint violations.
+	db  *DB   // If nil, this transaction is closed.
 	btx *bolt.Tx
 
 	bucketCache map[bucketKey]*bolt.Bucket
@@ -272,6 +274,9 @@ func (tx *Tx) Stats() Stats {
 
 // WriteTo writes the entire database to w, not including changes made during this transaction.
 func (tx *Tx) WriteTo(w io.Writer) (n int64, err error) {
+	if err := tx.error(); err != nil {
+		return 0, err
+	}
 	return tx.btx.WriteTo(w)
 }
 
@@ -516,7 +521,10 @@ func (db *DB) Read(fn func(*Tx) error) error {
 		tx := &Tx{db: db, btx: btx}
 		tx.stats.Reads++
 		defer tx.addStats()
-		return fn(tx)
+		if err := fn(tx); err != nil {
+			return err
+		}
+		return tx.err
 	})
 }
 
@@ -529,7 +537,10 @@ func (db *DB) Write(fn func(*Tx) error) error {
 		tx := &Tx{db: db, btx: btx}
 		tx.stats.Writes++
 		defer tx.addStats()
-		return fn(tx)
+		if err := fn(tx); err != nil {
+			return err
+		}
+		return tx.err
 	})
 }
 

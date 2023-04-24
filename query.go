@@ -171,6 +171,10 @@ func QueryTx[T any](tx *Tx) *Query[T] {
 	// note: Since we are in a transaction, we already hold an rlock on the
 	// db types.
 	q := &Query[T]{xtx: tx}
+	if tx.err != nil {
+		q.err = tx.err
+		return q
+	}
 	q.init(tx.db)
 	return q
 }
