@@ -9,7 +9,7 @@ Bstore implements autoincrementing primary keys, indices, default values,
 enforcement of nonzero, unique and referential integrity constraints, automatic
 schema updates and a query API for combining filters/sorting/limits. Queries
 are planned and executed using indices for fast execution where possible.
-Bstores is designed with the Go type system in mind: you typically don't have to
+Bstore is designed with the Go type system in mind: you typically don't have to
 write any (un)marshal code for your types.
 
 # Field types
