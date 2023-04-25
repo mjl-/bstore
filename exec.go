@@ -424,6 +424,25 @@ func (e *exec[T]) checkFilter(p *pair[T]) (rok bool, rerr error) {
 					return
 				}
 			}
+		case filterInSlice[T]:
+			v, err := p.Value(e)
+			if err != nil {
+				q.error(err)
+				return false, err
+			}
+			rv := reflect.ValueOf(v)
+			frv := rv.FieldByIndex(f.field.structField.Index)
+			n := frv.Len()
+			var have bool
+			for i := 0; i < n; i++ {
+				if f.field.Type.List.equal(frv.Index(i), f.rvalue) {
+					have = true
+					break
+				}
+			}
+			if !have {
+				return
+			}
 		case filterCompare[T]:
 			v, err := p.Value(e)
 			if err != nil {

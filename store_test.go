@@ -2669,6 +2669,250 @@ func TestBotched(t *testing.T) {
 	tclose(t, db)
 }
 
+func TestInSlice(t *testing.T) {
+	type Message struct {
+		ID            int64
+		MailboxOrigID int64
+		Junk          bool
+		Notjunk       bool
+		Received      time.Time `bstore:"nonzero,default now"`
+		DKIMDomains   []string  `bstore:"index DKIMDomains+Received"`
+	}
+
+	path := "testdata/inslice.db"
+	os.Remove(path)
+
+	db, err := topen(t, path, nil, Message{})
+	tcheck(t, err, "open")
+
+	err = db.Write(func(tx *Tx) error {
+		var stats, delta Stats
+		stats = tx.Stats()
+
+		updateStats := func() {
+			nstats := tx.Stats()
+			delta = nstats.Sub(stats)
+			stats = nstats
+		}
+
+		m0 := Message{Junk: true, DKIMDomains: []string{}}
+		err = tx.Insert(&m0)
+		tcheck(t, err, "insert")
+
+		m1 := Message{Junk: true, DKIMDomains: []string{"example.org"}}
+		err = tx.Insert(&m1)
+		tcheck(t, err, "insert")
+
+		m2 := Message{Junk: true, DKIMDomains: []string{"example.net"}}
+		err = tx.Insert(&m2)
+		tcheck(t, err, "insert")
+
+		m3 := Message{Junk: true, DKIMDomains: []string{"example.org", "example.net"}}
+		err = tx.Insert(&m3)
+		tcheck(t, err, "insert")
+
+		m4 := Message{Junk: true, DKIMDomains: []string{"cc.example", "aa.example"}}
+		err = tx.Insert(&m4)
+		tcheck(t, err, "insert")
+
+		updateStats()
+
+		q := QueryTx[Message](tx)
+		q.FilterEqual("MailboxOrigID", 0)
+		q.FilterIn("DKIMDomains", "example.org")
+		q.FilterFn(func(m Message) bool {
+			return m.Junk || m.Notjunk
+		})
+		q.FilterGreaterEqual("Received", time.Now().Add(-time.Minute))
+		q.Limit(50)
+		q.SortDesc("Received")
+		l, err := q.List()
+		tcompare(t, err, l, []Message{m3, m1}, "list")
+
+		updateStats()
+		tcompare(t, err, delta.PlanIndexScan, uint(1), "plan index scan")
+		tcompare(t, err, delta.LastOrdered, true, "ordered plan")
+		tcompare(t, err, delta.LastAsc, false, "descending")
+
+		n, err := QueryTx[Message](tx).FilterIn("DKIMDomains", "example.net").Count()
+		tcompare(t, err, n, 2, "count")
+
+		n, err = QueryTx[Message](tx).FilterIn("DKIMDomains", "aa.example").Count()
+		tcompare(t, err, n, 1, "count")
+
+		n, err = QueryTx[Message](tx).FilterIn("DKIMDomains", "doesnotexist.example").Count()
+		tcompare(t, err, n, 0, "count")
+
+		// Without DKIMDomains we won't use the index.
+		updateStats()
+		q = QueryTx[Message](tx)
+		q.FilterEqual("MailboxOrigID", 0)
+		q.FilterFn(func(m Message) bool {
+			return m.Junk || m.Notjunk
+		})
+		q.FilterGreaterEqual("Received", time.Now().Add(-time.Minute))
+		q.Limit(1)
+		q.SortDesc("Received")
+		l, err = q.List()
+		tcompare(t, err, l, []Message{m4}, "list")
+
+		updateStats()
+		tcompare(t, err, delta.PlanTableScan, uint(1), "plan table scan")
+
+		return nil
+	})
+	tcheck(t, err, "tx")
+
+	tclose(t, db)
+}
+
+// FilterIn without index.
+func TestInSliceNoIndex(t *testing.T) {
+	type T struct {
+		ID  int64
+		IDs []int64
+	}
+
+	path := "testdata/inslicenoindex.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+
+	err = db.Write(func(tx *Tx) error {
+		var stats, delta Stats
+		stats = tx.Stats()
+
+		updateStats := func() {
+			nstats := tx.Stats()
+			delta = nstats.Sub(stats)
+			stats = nstats
+		}
+
+		t0 := T{0, []int64{1, 2}}
+		err = tx.Insert(&t0)
+		tcheck(t, err, "insert")
+
+		t1 := T{0, []int64{2, 3, 4}}
+		err = tx.Insert(&t1)
+		tcheck(t, err, "insert")
+
+		updateStats()
+
+		l, err := QueryTx[T](tx).FilterIn("IDs", 1).List()
+		tcompare(t, err, l, []T{t0}, "list")
+		updateStats()
+		tcompare(t, err, delta.PlanTableScan, uint(1), "plan table scan")
+
+		l, err = QueryTx[T](tx).FilterIn("IDs", 2).SortDesc("ID").List()
+		tcompare(t, err, l, []T{t1, t0}, "list")
+		updateStats()
+		tcompare(t, err, delta.PlanTableScan, uint(1), "plan table scan")
+
+		return nil
+	})
+	tcheck(t, err, "write tx")
+
+	tclose(t, db)
+}
+
+func TestInSliceRef(t *testing.T) {
+	type T struct {
+		ID       int64
+		OtherIDs []int64 `bstore:"index,ref Other"` // Ref on slice field not allowed.
+	}
+	type Other struct {
+		ID int64
+	}
+
+	path := "testdata/insliceref.db"
+	os.Remove(path)
+	_, err := topen(t, path, nil, T{}, Other{})
+	tneed(t, err, ErrType, "open")
+}
+
+func TestInSliceBad(t *testing.T) {
+	type T struct {
+		ID      int64
+		Tags    []string `bstore:"index"`
+		Ptr     *string
+		Listptr []*string
+	}
+
+	path := "testdata/inslicerefbad.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+
+	q := func() *Query[T] {
+		return QueryDB[T](db)
+	}
+
+	err = q().FilterIn("ID", int64(1)).Err()
+	tneed(t, err, ErrParam, "filterin on non-slice")
+
+	err = q().FilterIn("Bogus", int64(1)).Err()
+	tneed(t, err, ErrParam, "filterin on unknown field")
+
+	err = q().FilterIn("Ptr", int64(1)).Err()
+	tneed(t, err, ErrParam, "filterin on ptr field")
+
+	err = q().FilterIn("Listptr", int64(1)).Err()
+	tneed(t, err, ErrParam, "filterin on listptr field")
+
+	err = q().FilterIn("Tags", int64(1)).Err()
+	tneed(t, err, ErrParam, "filterin with bad value")
+
+	tclose(t, db)
+}
+
+func TestSliceIndexChange(t *testing.T) {
+	type T0 struct {
+		ID   int64 `bstore:"typename T"`
+		Tags []string
+	}
+	type T1 struct {
+		ID   int64    `bstore:"typename T"`
+		Tags []string `bstore:"index"`
+	}
+
+	path := "testdata/sliceindexchanged.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T0{})
+	tcheck(t, err, "open")
+
+	t0 := T0{0, []string{"a", "b"}}
+	t1 := T0{0, []string{}}
+	t2 := T0{0, []string{"b", "c"}}
+	err = db.Insert(&t0, &t1, &t2)
+	tcheck(t, err, "insert")
+
+	l, err := QueryDB[T0](db).FilterIn("Tags", "a").List()
+	tcompare(t, err, l, []T0{t0}, "list")
+
+	l, err = QueryDB[T0](db).FilterIn("Tags", "").List()
+	tcompare(t, err, l, []T0{}, "list")
+
+	l, err = QueryDB[T0](db).FilterIn("Tags", "b").SortAsc("ID").List()
+	tcompare(t, err, l, []T0{t0, t2}, "list")
+
+	tclose(t, db)
+
+	// Reopen with T1 that has an index.
+	db1, err := topen(t, path, nil, T1{})
+	tcheck(t, err, "open")
+	xt0 := T1{t0.ID, t0.Tags}
+	l1, err := QueryDB[T1](db1).FilterIn("Tags", "a").List()
+	tcompare(t, err, l1, []T1{xt0}, "list")
+	tclose(t, db1)
+
+	// And open again without index.
+	db, err = topen(t, path, nil, T0{})
+	tcheck(t, err, "open")
+	l, err = QueryDB[T0](db).FilterIn("Tags", "a").List()
+	tcompare(t, err, l, []T0{t0}, "list")
+	tclose(t, db)
+}
+
 func bcheck(b *testing.B, err error, msg string) {
 	if err != nil {
 		b.Fatalf("%s: %s", msg, err)

@@ -480,11 +480,13 @@ func (db *DB) Register(typeValues ...any) error {
 				}
 
 				for i, idx := range idxs {
-					prek, ik, err := idx.packKey(rv, bk)
+					ikl, err := idx.packKey(rv, bk)
 					if err != nil {
 						return fmt.Errorf("creating key for %s.%s: %w", name, idx.Name, err)
 					}
-					ibkeys[i] = append(ibkeys[i], key{ik, uint16(len(prek))})
+					for _, ik := range ikl {
+						ibkeys[i] = append(ibkeys[i], key{ik.full, uint16(len(ik.pre))})
+					}
 				}
 				return nil
 			})
@@ -627,6 +629,7 @@ func gatherTypeVersion(t reflect.Type) (*typeVersion, error) {
 		}
 		idx = &index{unique, iname, nil, tv}
 		tv.Indices[iname] = idx
+		nslice := 0
 		for _, f := range fields {
 			// todo: can we have a unique index on bytes? seems like this should be possible to have max 1 []byte in an index key, only to be used for unique get plans.
 			if f.Type.Ptr {
@@ -634,6 +637,14 @@ func gatherTypeVersion(t reflect.Type) (*typeVersion, error) {
 			}
 			switch f.Type.Kind {
 			case kindBool, kindInt8, kindInt16, kindInt32, kindInt64, kindInt, kindUint8, kindUint16, kindUint32, kindUint64, kindUint, kindString, kindTime:
+			case kindSlice:
+				nslice++
+				if nslice > 1 {
+					return fmt.Errorf("%w: can only have one slice field in index, for field %q", ErrType, f.Name)
+				}
+				if unique {
+					return fmt.Errorf("%w: can only use slice field %v in field %q as index without unique", ErrType, f.Type.Kind, f.Name)
+				}
 			default:
 				return fmt.Errorf("%w: cannot use type %v in field %q as index/unique", ErrType, f.Type.Kind, f.Name)
 			}

@@ -64,8 +64,10 @@ Typically one word, but some have multiple space-separated words:
     the tag is specified. The field names are +-separated. The default name for
     the second form is the same +-separated string but can be set explicitly to
     the second parameter. An index can only be set for basic integer types, bools,
-    time and strings. Indices are automatically (re)created when registering a
-    type.
+    time and strings. A field of slice type can also have an index (but not a unique
+    index, and only one slice field per index), allowing fast lookup of any single
+    value in the slice with FilterIn. Indices are automatically (re)created when
+    registering a type.
   - "unique" or "unique  <field1+field2+...> [<name>]", adds an index as with
     "index" and also enforces a unique constraint. For time.Time the timezone is
     ignored for the uniqueness check.

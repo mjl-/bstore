@@ -31,9 +31,9 @@ type plan[T any] struct {
 	startInclusive bool   // If the start and stop values are inclusive or exclusive.
 	stopInclusive  bool
 
-	// Filter we need to apply on after retrieving the record. If all
-	// original filters from a query were handled by "keys" above, or by a
-	// range scan, this field is empty.
+	// Filter we need to apply after retrieving the record. If all original filters
+	// from a query were handled by "keys" above, or by a range scan, this field is
+	// empty.
 	filters []filter[T]
 
 	// Orders we need to apply after first retrieving all records. As with
@@ -73,8 +73,7 @@ func (q *Query[T]) selectPlan() (*plan[T], error) {
 	// filter per field. If there are multiple, we would use the last one.
 	// That's okay, we'll filter records out when we execute the leftover
 	// filters. Probably not common.
-	// This is common for filterEqual and filterIn on
-	// fields that have a unique index.
+	// This is common for filterEqual and filterIn on fields that have a unique index.
 	equalsIn := map[string]*filter[T]{}
 	for i := range q.xfilters {
 		ff := &q.xfilters[i]
@@ -116,12 +115,15 @@ indices:
 			}
 			fekeys := make([][]byte, len(rvalues))
 			for j, fv := range rvalues {
-				key, _, err := packIndexKeys([]reflect.Value{fv}, nil)
+				ikl, err := packIndexKeys([]reflect.Value{fv}, nil)
 				if err != nil {
 					q.error(err)
 					return nil, err
 				}
-				fekeys[j] = key
+				if len(ikl) != 1 {
+					return nil, fmt.Errorf("internal error: multiple index keys for unique index (%d)", len(ikl))
+				}
+				fekeys[j] = ikl[0].pre
 			}
 			if i == 0 {
 				keys = fekeys
@@ -148,22 +150,26 @@ indices:
 	}
 
 	// Try all other indices. We treat them all as non-unique indices now.
-	// We want to use the one with as many "equal" prefix fields as
-	// possible. Then we hope to use a scan on the remaining, either
-	// because of a filterCompare, or for an ordering. If there is a limit,
-	// orderings are preferred over compares.
+	// We want to use the one with as many "equal" or "inslice" field filters as
+	// possible. Then we hope to use a scan on the remaining, either because of a
+	// filterCompare, or for an ordering. If there is a limit, orderings are preferred
+	// over compares.
 	equals := map[string]*filter[T]{}
+	inslices := map[string]*filter[T]{}
 	for i := range q.xfilters {
 		ff := &q.xfilters[i]
 		switch f := (*ff).(type) {
 		case filterEqual[T]:
 			equals[f.field.Name] = ff
+		case filterInSlice[T]:
+			inslices[f.field.Name] = ff
 		}
 	}
 
-	// We are going to generate new plans, and keep the new one if it is better than what we have.
+	// We are going to generate new plans, and keep the new one if it is better than
+	// what we have so far.
 	var p *plan[T]
-	var nequals int
+	var nexact int
 	var nrange int
 	var ordered bool
 
@@ -181,18 +187,27 @@ indices:
 			}
 		} else {
 			packKeys = func(l []reflect.Value) ([]byte, error) {
-				key, _, err := packIndexKeys(l, nil)
-				return key, err
+				ikl, err := packIndexKeys(l, nil)
+				if err != nil {
+					return nil, err
+				}
+				if err == nil && len(ikl) != 1 {
+					return nil, fmt.Errorf("internal error: multiple index keys for exact filters, %v", ikl)
+				}
+				return ikl[0].pre, nil
 			}
 		}
 
-		var neq = 0
+		var nex = 0
 		// log.Printf("idx %v", idx)
 		var skipFilters []*filter[T]
 		for _, f := range idx.Fields {
-			if ff, ok := equals[f.Name]; ok {
-				skipFilters = append(skipFilters, ff)
-				neq++
+			if equals[f.Name] != nil && f.Type.Kind != kindSlice {
+				skipFilters = append(skipFilters, equals[f.Name])
+				nex++
+			} else if inslices[f.Name] != nil && f.Type.Kind == kindSlice {
+				skipFilters = append(skipFilters, inslices[f.Name])
+				nex++
 			} else {
 				break
 			}
@@ -203,8 +218,8 @@ indices:
 		var nrng int
 		var order *order
 		orders := q.xorders
-		if neq < len(idx.Fields) {
-			nf := idx.Fields[neq]
+		if nex < len(idx.Fields) {
+			nf := idx.Fields[nex]
 			for i := range q.xfilters {
 				ff := &q.xfilters[i]
 				switch f := (*ff).(type) {
@@ -238,23 +253,29 @@ indices:
 		}
 
 		// See if this is better than what we had.
-		if !(neq > nequals || (neq == nequals && (nrng > nrange || order != nil && !ordered && (q.xlimit > 0 || nrng == nrange)))) {
-			// log.Printf("plan not better, neq %d, nrng %d, limit %d, order %v ordered %v", neq, nrng, q.limit, order, ordered)
+		if !(nex > nexact || (nex == nexact && (nrng > nrange || order != nil && !ordered && (q.xlimit > 0 || nrng == nrange)))) {
+			// log.Printf("plan not better, nex %d, nrng %d, limit %d, order %v ordered %v", nex, nrng, q.limit, order, ordered)
 			return nil
 		}
-		nequals = neq
+		nexact = nex
 		nrange = nrng
 		ordered = order != nil
 
 		// Calculate the prefix key.
 		var kvalues []reflect.Value
-		for i := 0; i < neq; i++ {
+		for i := 0; i < nex; i++ {
 			f := idx.Fields[i]
-			kvalues = append(kvalues, (*equals[f.Name]).(filterEqual[T]).rvalue)
+			var v reflect.Value
+			if f.Type.Kind != kindSlice {
+				v = (*equals[f.Name]).(filterEqual[T]).rvalue
+			} else {
+				v = (*inslices[f.Name]).(filterInSlice[T]).rvalue
+			}
+			kvalues = append(kvalues, v)
 		}
 		var key []byte
 		var err error
-		if neq > 0 {
+		if nex > 0 {
 			key, err = packKeys(kvalues)
 			if err != nil {
 				return err

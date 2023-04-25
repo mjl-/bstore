@@ -91,36 +91,40 @@ func (tx *Tx) updateIndices(tv *typeVersion, pk []byte, ov, v reflect.Value) err
 			return err
 		}
 		if remove {
-			_, ik, err := idx.packKey(ov, pk)
+			ikl, err := idx.packKey(ov, pk)
 			if err != nil {
 				return err
 			}
-			tx.stats.Index.Delete++
-			if sanityChecks {
-				tx.stats.Index.Get++
-				if ib.Get(ik) == nil {
-					return fmt.Errorf("internal error: key missing from index")
+			for _, ik := range ikl {
+				tx.stats.Index.Delete++
+				if sanityChecks {
+					tx.stats.Index.Get++
+					if ib.Get(ik.full) == nil {
+						return fmt.Errorf("internal error: key missing from index")
+					}
 				}
-			}
-			if err := ib.Delete(ik); err != nil {
-				return fmt.Errorf("%w: removing from index: %s", ErrStore, err)
+				if err := ib.Delete(ik.full); err != nil {
+					return fmt.Errorf("%w: removing from index: %s", ErrStore, err)
+				}
 			}
 		}
 		if add {
-			prek, ik, err := idx.packKey(v, pk)
+			ikl, err := idx.packKey(v, pk)
 			if err != nil {
 				return err
 			}
-			if idx.Unique {
-				tx.stats.Index.Cursor++
-				if xk, _ := ib.Cursor().Seek(prek); xk != nil && bytes.HasPrefix(xk, prek) {
-					return fmt.Errorf("%w: %q", ErrUnique, idx.Name)
+			for _, ik := range ikl {
+				if idx.Unique {
+					tx.stats.Index.Cursor++
+					if xk, _ := ib.Cursor().Seek(ik.pre); xk != nil && bytes.HasPrefix(xk, ik.pre) {
+						return fmt.Errorf("%w: %q", ErrUnique, idx.Name)
+					}
 				}
-			}
 
-			tx.stats.Index.Put++
-			if err := ib.Put(ik, []byte{}); err != nil {
-				return fmt.Errorf("inserting into index: %w", err)
+				tx.stats.Index.Put++
+				if err := ib.Put(ik.full, []byte{}); err != nil {
+					return fmt.Errorf("inserting into index: %w", err)
+				}
 			}
 		}
 	}

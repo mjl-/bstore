@@ -151,10 +151,10 @@ func TestKeys(t *testing.T) {
 	tneedpkkey(t, nil, nil, Index[string]{0, "a"}, "Field")
 	tneedpkkey(t, nil, nil, Index[bool]{0, true}, "Field")
 	tneedpkkey(t, nil, nil, Index[time.Time]{0, time.Now()}, "Field")
+	tneedpkkey(t, nil, nil, Index[[]string]{0, []string{"a", "b"}}, "Field")
 
 	// Cannot use other types as index.
 	tneedpkkey(t, ErrType, nil, Index[[]byte]{0, []byte("a")}, "")
-	tneedpkkey(t, ErrType, nil, Index[[]string]{0, nil}, "")
 	tneedpkkey(t, ErrType, nil, Index[Struct]{0, Struct{1}}, "")
 	tneedpkkey(t, ErrType, nil, Index[Map]{0, Map{"a": 1}}, "")
 
@@ -180,4 +180,12 @@ func TestKeys(t *testing.T) {
 	tneedpkkey(t, ErrType, nil, Unique[[]string]{0, nil}, "")
 	tneedpkkey(t, ErrType, nil, Unique[Struct]{0, Struct{1}}, "")
 	tneedpkkey(t, ErrType, nil, Unique[Map]{0, Map{"a": 1}}, "")
+
+	// Multiple keys with slice field are not allowed.
+	type MultipleSliceFields struct {
+		ID int64
+		A  []string
+		B  []int `bstore:"index B+A"`
+	}
+	tneedpkkey(t, ErrType, nil, MultipleSliceFields{}, "")
 }

@@ -99,6 +99,14 @@ type filterNotIn[T any] struct {
 
 func (filterNotIn[T]) filter() {}
 
+// For matching one of the values in a field that is a slice of the same type.
+type filterInSlice[T any] struct {
+	field  field // Of field type, a slice.
+	rvalue reflect.Value
+}
+
+func (filterInSlice[T]) filter() {}
+
 type compareOp byte
 
 const (
@@ -440,14 +448,14 @@ var convertFieldKinds = map[convertKinds]struct{}{
 // Check type of value for field and return a reflect value that can directly be set on the field.
 // If the field is a pointer, we allow non-pointers and convert them.
 // We require value to be of a type that can be converted without loss of precision to the type of field.
-func (q *Query[T]) prepareValue(fname string, ft fieldType, sf reflect.StructField, rv reflect.Value) (reflect.Value, bool) {
+func (q *Query[T]) prepareValue(fname string, ft fieldType, st reflect.Type, rv reflect.Value) (reflect.Value, bool) {
 	if !rv.IsValid() {
 		q.errorf("%w: invalid value", ErrParam)
 		return rv, false
 	}
 	// Quick check first.
 	t := rv.Type()
-	if t == sf.Type {
+	if t == st {
 		return rv, true
 	}
 	if !ft.Ptr && rv.Kind() == reflect.Ptr {
@@ -465,14 +473,14 @@ func (q *Query[T]) prepareValue(fname string, ft fieldType, sf reflect.StructFie
 		return reflect.Value{}, false
 	}
 	if k != ft.Kind {
-		dt := sf.Type
+		dt := st
 		if ft.Ptr {
 			dt = dt.Elem()
 		}
 		rv = rv.Convert(dt)
 	}
 	if ft.Ptr && rv.Kind() != reflect.Ptr {
-		nv := reflect.New(sf.Type.Elem())
+		nv := reflect.New(st.Elem())
 		nv.Elem().Set(rv)
 		rv = nv
 	}
@@ -658,7 +666,7 @@ func (q *Query[T]) filterEqual(fieldName string, values []any, not bool) {
 		return
 	}
 	if len(values) == 1 {
-		rv, ok := q.prepareValue(ff.Name, ff.Type, ff.structField, reflect.ValueOf(values[0]))
+		rv, ok := q.prepareValue(ff.Name, ff.Type, ff.structField.Type, reflect.ValueOf(values[0]))
 		if !ok {
 			return
 		}
@@ -671,7 +679,7 @@ func (q *Query[T]) filterEqual(fieldName string, values []any, not bool) {
 	}
 	rvs := make([]reflect.Value, len(values))
 	for i, value := range values {
-		rv, ok := q.prepareValue(ff.Name, ff.Type, ff.structField, reflect.ValueOf(value))
+		rv, ok := q.prepareValue(ff.Name, ff.Type, ff.structField.Type, reflect.ValueOf(value))
 		if !ok {
 			return
 		}
@@ -682,6 +690,42 @@ func (q *Query[T]) filterEqual(fieldName string, values []any, not bool) {
 	} else {
 		q.addFilter(filterIn[T]{ff, rvs})
 	}
+}
+
+// FilterIn selects records that have one of values of the string slice fieldName.
+//
+// If fieldName has an index, it is used to select rows.
+//
+// Note: Value must be a compatible type for comparison with the elements of
+// fieldName. Go constant numbers become ints, which are not compatible with uint
+// or float types.
+func (q *Query[T]) FilterIn(fieldName string, value any) *Query[T] {
+	if !q.checkErr() {
+		return q
+	}
+	ff, ok := q.lookupField(fieldName)
+	if !ok {
+		return q
+	}
+	if ff.Type.Ptr {
+		q.errorf("%w: cannot compare pointer values", ErrParam)
+		return q
+	}
+	if ff.Type.Kind != kindSlice {
+		q.errorf("%w: field for FilterIn must be a slice", ErrParam)
+		return q
+	}
+	et := ff.Type.List
+	if et.Ptr {
+		q.errorf("%w: cannot compare element pointer values", ErrParam)
+		return q
+	}
+	rv, ok := q.prepareValue(ff.Name, *et, ff.structField.Type.Elem(), reflect.ValueOf(value))
+	if !ok {
+		return q
+	}
+	q.addFilter(filterInSlice[T]{ff, rv})
+	return q
 }
 
 // FilterGreater selects records that have fieldName > value.
@@ -720,7 +764,7 @@ func (q *Query[T]) filterCompare(fieldName string, op compareOp, value reflect.V
 		q.errorf("%w: cannot compare %s", ErrParam, ff.Type.Kind)
 		return q
 	}
-	rv, ok := q.prepareValue(ff.Name, ff.Type, ff.structField, value)
+	rv, ok := q.prepareValue(ff.Name, ff.Type, ff.structField.Type, value)
 	if !ok {
 		return q
 	}
@@ -983,7 +1027,7 @@ next:
 			if i == 0 {
 				return 0, fmt.Errorf("%w: cannot update primary key", ErrParam)
 			}
-			rv, ok := q.prepareValue(f.Name, f.Type, f.structField, reflect.ValueOf(value))
+			rv, ok := q.prepareValue(f.Name, f.Type, f.structField.Type, reflect.ValueOf(value))
 			if !ok {
 				return 0, q.err
 			}
@@ -995,7 +1039,7 @@ next:
 			if ef.Name != name {
 				continue
 			}
-			rv, ok := q.prepareValue(ef.Name, ef.Type, ef.structField, reflect.ValueOf(value))
+			rv, ok := q.prepareValue(ef.Name, ef.Type, ef.structField.Type, reflect.ValueOf(value))
 			if !ok {
 				return 0, q.err
 			}
