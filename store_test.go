@@ -1362,9 +1362,9 @@ func TestNonzero(t *testing.T) {
 		tcheck(t, err, "open")
 		err = db.Insert(val)
 		if exp != nil && (err == nil || !errors.Is(err, exp)) {
-			t.Fatalf("got err %q, expected %v", err, exp)
+			t.Fatalf("got err %v, expected %v", err, exp)
 		} else if exp == nil && err != nil {
-			t.Fatalf("got err %q, expected nil", err)
+			t.Fatalf("got err %v, expected nil", err)
 			err = db.Get(val)
 			tcheck(t, err, "get")
 		}
@@ -2900,7 +2900,7 @@ func TestSliceIndexChange(t *testing.T) {
 	// Reopen with T1 that has an index.
 	db1, err := topen(t, path, nil, T1{})
 	tcheck(t, err, "open")
-	xt0 := T1{t0.ID, t0.Tags}
+	xt0 := T1(t0)
 	l1, err := QueryDB[T1](db1).FilterIn("Tags", "a").List()
 	tcompare(t, err, l1, []T1{xt0}, "list")
 	tclose(t, db1)
@@ -2910,6 +2910,376 @@ func TestSliceIndexChange(t *testing.T) {
 	tcheck(t, err, "open")
 	l, err = QueryDB[T0](db).FilterIn("Tags", "a").List()
 	tcompare(t, err, l, []T0{t0}, "list")
+	tclose(t, db)
+}
+
+type CyclicA struct {
+	ID int64
+	B  *CyclicB
+	L  []CyclicB
+	M  map[int]CyclicB
+}
+type CyclicB struct {
+	Text string
+	A    CyclicA
+	L    []CyclicA
+}
+
+func TestCyclic(t *testing.T) {
+	path := "testdata/cyclic.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, CyclicA{})
+	tcheck(t, err, "open")
+
+	a0 := CyclicA{}
+	a1 := CyclicA{
+		0,
+		&CyclicB{"b", CyclicA{ID: 1, B: &CyclicB{Text: "c"}}, []CyclicA{}},
+		[]CyclicB{
+			{Text: "d", A: CyclicA{ID: 1}},
+			{Text: "e"},
+			{},
+		},
+		map[int]CyclicB{1: {Text: "f"}},
+	}
+	err = db.Insert(&a0, &a1)
+	tcheck(t, err, "insert")
+
+	x0 := CyclicA{ID: a0.ID}
+	err = db.Get(&x0)
+	tcompare(t, err, x0, a0, "get a0")
+
+	x1 := CyclicA{ID: a1.ID}
+	err = db.Get(&x1)
+	tcompare(t, err, x1, a1, "get a1")
+
+	tclose(t, db)
+}
+
+func TestCyclicMore(t *testing.T) {
+	type Y struct {
+		Text string
+	}
+	type T struct {
+		ID  int64
+		T   *T
+		Map map[string]*T
+		Y
+	}
+
+	path := "testdata/cyclicmore.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+
+	t0 := T{}
+	t1 := T{
+		T:   &T{ID: 2, Y: Y{Text: "x"}},
+		Map: map[string]*T{"x": {ID: 3, Y: Y{Text: "y"}}},
+		Y:   Y{Text: "z"},
+	}
+	err = db.Insert(&t0, &t1)
+	tcheck(t, err, "insert")
+
+	x0 := T{ID: t0.ID}
+	err = db.Get(&x0)
+	tcompare(t, err, x0, t0, "get t0")
+
+	x1 := T{ID: t1.ID}
+	err = db.Get(&x1)
+	tcompare(t, err, x1, t1, "get t1")
+
+	tclose(t, db)
+}
+
+func TestCyclicChange(t *testing.T) {
+	type T0 struct {
+		ID int64 `bstore:"typename T"`
+		T  *T0
+	}
+
+	type T1 struct {
+		ID  int64 `bstore:"typename T"`
+		T   *T1
+		New string
+	}
+
+	path := "testdata/cyclicchange.db"
+	os.Remove(path)
+	db0, err := topen(t, path, nil, T0{})
+	tcheck(t, err, "open")
+
+	t0a := T0{}
+	t0b := T0{
+		T: &T0{ID: 999},
+	}
+	err = db0.Insert(&t0a, &t0b)
+	tcheck(t, err, "insert")
+
+	tclose(t, db0)
+
+	db1, err := topen(t, path, nil, T1{})
+	tcheck(t, err, "open")
+
+	t1b := T1{ID: t0b.ID, T: &T1{ID: 999}}
+	x1b := T1{ID: t0b.ID}
+	err = db1.Get(&x1b)
+	tcompare(t, err, x1b, t1b, "get t1b")
+
+	tclose(t, db1)
+}
+
+type CyclicA0 struct {
+	ID         int64 `bstore:"typename CyclicA"`
+	B          CyclicB0
+	Unchanged0 int
+	Unchanged1 *int
+	Unchanged2 []int
+	Unchanged3 map[int]int
+	Unchanged  Unchanged
+}
+type CyclicB0 struct {
+	C []CyclicC0
+}
+type CyclicC0 struct {
+	D map[string]CyclicD0
+}
+type CyclicD0 struct {
+	E string // Will get nonzero constraint.
+	A *CyclicA0
+}
+type Unchanged struct {
+	V int
+}
+type CyclicA1 struct {
+	ID         int64 `bstore:"typename CyclicA"`
+	Unchanged0 int
+	Unchanged1 *int
+	Unchanged2 []int
+	Unchanged3 map[int]int
+	Unchanged  Unchanged
+	B          CyclicB1
+}
+type CyclicB1 struct {
+	C []CyclicC1
+}
+type CyclicC1 struct {
+	D map[string]CyclicD1
+}
+type CyclicD1 struct {
+	E string `bstore:"nonzero"` // Now with nonzero constraint.
+	A *CyclicA1
+}
+
+// Test propagation of need to check for nonzero including cyclic type.
+func TestPropagateChangeNonzero(t *testing.T) {
+	path := "testdata/propagatechangenonzero.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, CyclicA0{})
+	tcheck(t, err, "open")
+
+	ca0 := CyclicA0{
+		Unchanged0: 0,
+		Unchanged1: ptr(0),
+		Unchanged2: []int{0},
+		Unchanged3: map[int]int{1: 2},
+		B: CyclicB0{
+			C: []CyclicC0{
+				{
+					D: map[string]CyclicD0{
+						"x": {
+							E: "", // ErrZero after schema change.
+							A: &CyclicA0{ID: 2},
+						},
+					},
+				},
+			},
+		},
+	}
+	err = db.Insert(&ca0)
+	tcheck(t, err, "insert")
+
+	tclose(t, db)
+
+	_, err = topen(t, path, nil, CyclicA1{})
+	tneed(t, err, ErrZero, "open")
+}
+
+type CyclicPtrA0 struct {
+	ID int64 `bstore:"typename CyclicPtrA"`
+	B  *CyclicPtrB0
+}
+type CyclicPtrB0 struct {
+	C *[]*CyclicPtrC0
+}
+type CyclicPtrC0 struct {
+	D *map[string]*CyclicPtrD0
+}
+type CyclicPtrD0 struct {
+	E *string // Will get nonzero constraint.
+	A *CyclicPtrA0
+}
+type CyclicPtrA1 struct {
+	ID int64 `bstore:"typename CyclicPtrA"`
+	B  *CyclicPtrB1
+}
+type CyclicPtrB1 struct {
+	C []*CyclicPtrC1
+}
+type CyclicPtrC1 struct {
+	D map[string]*CyclicPtrD1
+}
+type CyclicPtrD1 struct {
+	E *string `bstore:"nonzero"` // Now with nonzero constraint.
+	A *CyclicPtrA1
+}
+
+func ptr[T any](v T) *T {
+	return &v
+}
+
+// Test propagation of need to check for nonzero including cyclic type on pointer types.
+func TestPropagateChangePtrNonzero(t *testing.T) {
+	path := "testdata/propagatechangeptrnonzero.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, CyclicPtrA0{})
+	tcheck(t, err, "open")
+
+	ca0 := CyclicPtrA0{
+		B: &CyclicPtrB0{
+			C: ptr([]*CyclicPtrC0{
+				{
+					D: ptr(map[string]*CyclicPtrD0{
+						"x": {
+							E: nil, // ErrZero after schema change.
+							A: &CyclicPtrA0{ID: 2},
+						},
+					}),
+				},
+			}),
+		},
+	}
+	ca1 := CyclicPtrA0{}
+	err = db.Insert(&ca1, &ca0) // ca1 first, to test that nil values are not descended into.
+	tcheck(t, err, "insert")
+
+	tclose(t, db)
+
+	_, err = topen(t, path, nil, CyclicPtrA1{})
+	tneed(t, err, ErrZero, "open")
+}
+
+func TestEmbedSelf(t *testing.T) {
+	type X struct {
+		ID int
+		S  string
+		*X
+	}
+
+	path := "testdata/embedself.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, X{})
+	tcheck(t, err, "open")
+
+	v := X{S: "s", X: &X{S: "y"}}
+	err = db.Insert(&v)
+	tcheck(t, err, "insert")
+
+	x := X{ID: v.ID}
+	err = db.Get(&x)
+	tcompare(t, err, x, v, "get v")
+
+	tclose(t, db)
+
+	db, err = topen(t, path, nil, X{})
+	tcheck(t, err, "open db")
+	x = X{ID: v.ID}
+	err = db.Get(&x)
+	tcompare(t, err, x, v, "compare")
+
+	tclose(t, db)
+}
+
+func TestOndiskV1(t *testing.T) {
+	type Noncyclic struct {
+		ID int
+	}
+	path := "testdata/ondiskv1.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, Noncyclic{})
+	tcheck(t, err, "open")
+
+	// Types that don't reference other structs get ondiskVersion1.
+	tcompare(t, nil, db.typeNames["Noncyclic"].Current.OndiskVersion, uint32(ondiskVersion1), "checking for ondisk version")
+
+	tclose(t, db)
+}
+
+func TestOndiskV2A(t *testing.T) {
+	type A struct {
+		S string
+	}
+	type Named struct {
+		ID int
+		A  A
+	}
+	path := "testdata/ondiskv2a.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, Named{})
+	tcheck(t, err, "open")
+
+	// Type references another struct type, so gets ondiskVersion2.
+	tcompare(t, nil, db.typeNames["Named"].Current.OndiskVersion, uint32(ondiskVersion2), "checking for ondisk version")
+
+	tclose(t, db)
+}
+
+func TestOndiskV2B(t *testing.T) {
+	type X struct {
+		V int
+		X *X
+	}
+	type Cyclic struct {
+		ID int
+		*Cyclic
+		X *X
+	}
+	// Like Cyclic, but with the cyclic fields swapped, causing different "seq"
+	// assignments for the cyclic struct types.
+	type CyclicSwapped struct {
+		ID     int `bstore:"typename Cyclic"`
+		X      *X
+		Cyclic *CyclicSwapped
+	}
+
+	path := "testdata/ondiskv2b.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, Cyclic{})
+	tcheck(t, err, "open")
+
+	// Cyclic types are stored as ondiskVersion2.
+	tcompare(t, nil, db.typeNames["Cyclic"].Current.OndiskVersion, uint32(ondiskVersion2), "checking for ondisk version")
+
+	c0 := Cyclic{Cyclic: &Cyclic{ID: 2}, X: &X{V: 3}}
+	err = db.Insert(&c0)
+	tcheck(t, err, "insert")
+
+	x0 := Cyclic{ID: c0.ID}
+	err = db.Get(&x0)
+	tcompare(t, err, x0, c0, "get x0")
+
+	tclose(t, db)
+
+	db, err = topen(t, path, nil, CyclicSwapped{})
+	tcheck(t, err, "open")
+
+	tcompare(t, nil, len(db.typeNames["Cyclic"].Versions), 2, "check typeversions after swapping field order")
+
+	s0 := CyclicSwapped{ID: c0.ID}
+	err = db.Get(&s0)
+	tcompare(t, err, s0.X.V, c0.X.V, "check x.v")
+	tcompare(t, err, s0.Cyclic.ID, c0.Cyclic.ID, "check cyclic.id")
+
 	tclose(t, db)
 }
 

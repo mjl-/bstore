@@ -15,7 +15,13 @@ import (
 )
 
 const (
+	// First version.
 	ondiskVersion1 = 1
+
+	// With support for cyclic types, adding typeField.FieldsTypeSeq to
+	// define/reference types. Only used when a type has a field that referencs another
+	// struct type.
+	ondiskVersion2 = 2
 )
 
 // Register registers the Go types of each value in typeValues for use with the
@@ -559,8 +565,10 @@ func parseSchema(bk, bv []byte) (*typeVersion, error) {
 	if tv.Version != version {
 		return nil, fmt.Errorf("%w: version in schema %d does not match key %d", ErrStore, tv.Version, version)
 	}
-	if tv.OndiskVersion != ondiskVersion1 {
-		return nil, fmt.Errorf("internal error: OndiskVersion %d not supported", tv.OndiskVersion)
+	switch tv.OndiskVersion {
+	case ondiskVersion1, ondiskVersion2:
+	default:
+		return nil, fmt.Errorf("internal error: OndiskVersion %d not recognized/supported", tv.OndiskVersion)
 	}
 
 	// Fill references, used for comparing/checking schema updates.
@@ -571,12 +579,71 @@ func parseSchema(bk, bv []byte) (*typeVersion, error) {
 		}
 	}
 
+	// Resolve fieldType.structField, for cyclic types. The type itself always
+	// implicitly has sequence 1.
+	seqFields := map[int][]field{1: tv.Fields}
+	origOndiskVersion := tv.OndiskVersion
+	for i := range tv.Fields {
+		if err := tv.resolveStructFields(seqFields, &tv.Fields[i].Type); err != nil {
+			return nil, fmt.Errorf("%w: resolving fields for cyclic data: %v", ErrStore, err)
+		}
+	}
+	if tv.OndiskVersion != origOndiskVersion {
+		return nil, fmt.Errorf("%w: resolving cyclic types changed ondisk version from %d to %d", ErrStore, origOndiskVersion, tv.OndiskVersion)
+	}
+
 	return &tv, nil
+}
+
+// Resolve structFields in ft (and recursively), either by setting it to Fields
+// (common), or by setting it to the fields of a referenced type in case of a
+// cyclic data type.
+func (tv *typeVersion) resolveStructFields(seqFields map[int][]field, ft *fieldType) error {
+	if ft.Kind == kindStruct {
+		if ft.FieldsTypeSeq < 0 {
+			var ok bool
+			ft.structFields, ok = seqFields[-ft.FieldsTypeSeq]
+			if !ok {
+				return fmt.Errorf("reference to undefined FieldsTypeSeq %d (n %d)", -ft.FieldsTypeSeq, len(seqFields))
+			}
+			if len(ft.DefinitionFields) != 0 {
+				return fmt.Errorf("reference to FieldsTypeSeq while also defining fields")
+			}
+		} else if ft.FieldsTypeSeq > 0 {
+			if _, ok := seqFields[ft.FieldsTypeSeq]; ok {
+				return fmt.Errorf("duplicate definition of FieldsTypeSeq %d (n %d)", ft.FieldsTypeSeq, len(seqFields))
+			}
+			seqFields[ft.FieldsTypeSeq] = ft.DefinitionFields
+			ft.structFields = ft.DefinitionFields
+		}
+		// note: ondiskVersion1 does not have/use this field, so it defaults to 0.
+		if ft.FieldsTypeSeq != 0 {
+			tv.OndiskVersion = ondiskVersion2
+		}
+
+		for i := range ft.DefinitionFields {
+			if err := tv.resolveStructFields(seqFields, &ft.DefinitionFields[i].Type); err != nil {
+				return err
+			}
+		}
+	}
+	ftl := []*fieldType{ft.MapKey, ft.MapValue, ft.List}
+	for _, ft := range ftl {
+		if ft == nil {
+			continue
+		}
+		if err := tv.resolveStructFields(seqFields, ft); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // packSchema returns a key and value to store in the types bucket.
 func packSchema(tv *typeVersion) ([]byte, []byte, error) {
-	if tv.OndiskVersion != ondiskVersion1 {
+	switch tv.OndiskVersion {
+	case ondiskVersion1, ondiskVersion2:
+	default:
 		return nil, nil, fmt.Errorf("internal error: invalid OndiskVersion %d", tv.OndiskVersion)
 	}
 	v, err := json.Marshal(tv)
@@ -597,12 +664,17 @@ func gatherTypeVersion(t reflect.Type) (*typeVersion, error) {
 	}
 	tv := &typeVersion{
 		Version:       0,              // Set by caller.
-		OndiskVersion: ondiskVersion1, // Current on-disk format.
+		OndiskVersion: ondiskVersion1, // Set to ondiskVersion2 when a referenced type is encountered.
 		ReferencedBy:  map[string]struct{}{},
 		name:          tname,
 		fillPercent:   0.5,
 	}
-	tv.Fields, tv.embedFields, err = gatherTypeFields(t, true, true, false)
+
+	// The type being parsed implicitly has sequence 1. Next struct types will be
+	// assigned the next value (based on length of typeseqs). FieldTypes referencing
+	// another type are resolved below, after all fields have been gathered.
+	typeSeqs := map[reflect.Type]int{t: 1}
+	tv.Fields, tv.embedFields, err = gatherTypeFields(typeSeqs, t, true, true, false, true)
 	if err != nil {
 		return nil, err
 	}
@@ -616,6 +688,15 @@ func gatherTypeVersion(t reflect.Type) (*typeVersion, error) {
 		case kindInt, kindInt8, kindInt16, kindInt32, kindInt64, kindUint, kindUint8, kindUint16, kindUint32, kindUint64:
 		default:
 			return nil, fmt.Errorf("%w: cannot have noauto on non-integer primary key field", ErrType)
+		}
+	}
+
+	// Resolve structFields for the typeFields that reference an earlier defined type,
+	// using the same function as used when loading a type from disk.
+	seqFields := map[int][]field{1: tv.Fields}
+	for i := range tv.Fields {
+		if err := tv.resolveStructFields(seqFields, &tv.Fields[i].Type); err != nil {
+			return nil, fmt.Errorf("%w: resolving struct fields for cyclic types: %v", ErrStore, err)
 		}
 	}
 
@@ -758,7 +839,7 @@ func gatherTypeVersion(t reflect.Type) (*typeVersion, error) {
 // field must not be ignored and be a valid primary key field (eg no pointer).
 // topLevel must be true only for the top-level struct fields, not for fields of
 // deeper levels. Deeper levels cannot have index/unique constraints.
-func gatherTypeFields(t reflect.Type, needFirst, topLevel, inMap bool) ([]field, []embed, error) {
+func gatherTypeFields(typeSeqs map[reflect.Type]int, t reflect.Type, needFirst, topLevel, inMap, newSeq bool) ([]field, []embed, error) {
 	var fields []field
 	var embedFields []embed
 
@@ -810,7 +891,7 @@ func gatherTypeFields(t reflect.Type, needFirst, topLevel, inMap bool) ([]field,
 		}
 		names[name] = struct{}{}
 
-		ft, err := gatherFieldType(sf.Type, inMap)
+		ft, err := gatherFieldType(typeSeqs, sf.Type, inMap, newSeq && !sf.Anonymous)
 		if err != nil {
 			return nil, nil, fmt.Errorf("field %q: %w", sf.Name, err)
 		}
@@ -883,7 +964,9 @@ func gatherTypeFields(t reflect.Type, needFirst, topLevel, inMap bool) ([]field,
 			}
 		}
 
-		if sf.Anonymous {
+		// We don't store anonymous/embed fields, unless it is a cyclic type, because then
+		// we wouldn't have included any of its type's fields.
+		if sf.Anonymous && ft.FieldsTypeSeq == 0 {
 			e := embed{name, ft, sf}
 			embedFields = append(embedFields, e)
 		} else {
@@ -908,12 +991,13 @@ func checkKeyType(t reflect.Type) error {
 	return fmt.Errorf("%w: type %v not valid for primary key", ErrType, t)
 }
 
-func gatherFieldType(t reflect.Type, inMap bool) (fieldType, error) {
+func gatherFieldType(typeSeqs map[reflect.Type]int, t reflect.Type, inMap, newSeq bool) (fieldType, error) {
 	ft := fieldType{}
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
 		ft.Ptr = true
 	}
+
 	k, err := typeKind(t)
 	if err != nil {
 		return fieldType{}, err
@@ -921,32 +1005,45 @@ func gatherFieldType(t reflect.Type, inMap bool) (fieldType, error) {
 	ft.Kind = k
 	switch ft.Kind {
 	case kindSlice:
-		l, err := gatherFieldType(t.Elem(), inMap)
+		l, err := gatherFieldType(typeSeqs, t.Elem(), inMap, newSeq)
 		if err != nil {
 			return ft, fmt.Errorf("list: %w", err)
 		}
 		ft.List = &l
 	case kindMap:
-		kft, err := gatherFieldType(t.Key(), true)
+		kft, err := gatherFieldType(typeSeqs, t.Key(), true, newSeq)
 		if err != nil {
 			return ft, fmt.Errorf("map key: %w", err)
 		}
 		if kft.Ptr {
 			return ft, fmt.Errorf("%w: map key with pointer type not supported", ErrType)
 		}
-		vft, err := gatherFieldType(t.Elem(), true)
+		vft, err := gatherFieldType(typeSeqs, t.Elem(), true, newSeq)
 		if err != nil {
 			return ft, fmt.Errorf("map value: %w", err)
 		}
 		ft.MapKey = &kft
 		ft.MapValue = &vft
 	case kindStruct:
-		// note: we have no reason to gather embed field beyond top-level
-		fields, _, err := gatherTypeFields(t, false, false, inMap)
+		// If this is a known type, track a reference to the earlier defined type. Once the
+		// type with all Fields is fully parsed, the references will be resolved.
+		if seq, ok := typeSeqs[t]; ok {
+			ft.FieldsTypeSeq = -seq
+			return ft, nil
+		}
+
+		// If we are processing an anonymous (embed) field, we don't assign a new seq,
+		// because we won't be walking it when resolving again.
+		seq := len(typeSeqs) + 1
+		if newSeq {
+			typeSeqs[t] = seq
+			ft.FieldsTypeSeq = seq
+		}
+		fields, _, err := gatherTypeFields(typeSeqs, t, false, false, inMap, newSeq)
 		if err != nil {
 			return fieldType{}, fmt.Errorf("struct: %w", err)
 		}
-		ft.Fields = fields
+		ft.DefinitionFields = fields
 	}
 	return ft, nil
 }
@@ -1023,16 +1120,16 @@ func (ft fieldType) laterFields() (later, mvlater []field) {
 	} else if ft.List != nil {
 		return ft.List.laterFields()
 	}
-	return ft.Fields, nil
+	return ft.structFields, nil
 }
 
 func (ft fieldType) prepare(nft *fieldType, later, mvlater [][]field) {
-	for i, f := range ft.Fields {
+	for i, f := range ft.DefinitionFields {
 		nlater, nmvlater, skip := lookupLater(f.Name, later)
 		if skip {
 			continue
 		}
-		ft.Fields[i].prepare(nft.Fields, nlater, nmvlater)
+		ft.DefinitionFields[i].prepare(nft.DefinitionFields, nlater, nmvlater)
 	}
 	if ft.MapKey != nil {
 		ft.MapKey.prepare(nft.MapKey, later, nil)
@@ -1098,11 +1195,14 @@ func (ft fieldType) typeEqual(nft fieldType) bool {
 	if ft.Ptr != nft.Ptr || ft.Kind != nft.Kind {
 		return false
 	}
-	if len(ft.Fields) != len(nft.Fields) {
+	if ft.FieldsTypeSeq != nft.FieldsTypeSeq {
 		return false
 	}
-	for i, f := range ft.Fields {
-		if !f.typeEqual(nft.Fields[i]) {
+	if len(ft.DefinitionFields) != len(nft.DefinitionFields) {
+		return false
+	}
+	for i, f := range ft.DefinitionFields {
+		if !f.typeEqual(nft.DefinitionFields[i]) {
 			return false
 		}
 	}
@@ -1135,12 +1235,16 @@ func (idx *index) typeEqual(nidx *index) bool {
 // into an int32. Indices that need to be recreated (for an int width change) are
 // recorded in recreateIndices.
 func (tx *Tx) checkTypes(otv, ntv *typeVersion, recreateIndices map[string]struct{}) error {
+	// Used to track that two nonzero FieldsTypeSeq have been checked, to prevent
+	// recursing while checking.
+	checked := map[[2]int]struct{}{}
+
 	for _, f := range ntv.Fields {
 		for _, of := range otv.Fields {
 			if f.Name != of.Name {
 				continue
 			}
-			increase, err := of.Type.compatible(f.Type)
+			increase, err := of.Type.compatible(f.Type, checked)
 			if err != nil {
 				return fmt.Errorf("%w: field %q: %s", ErrIncompatible, f.Name, err)
 			}
@@ -1165,7 +1269,7 @@ func (tx *Tx) checkTypes(otv, ntv *typeVersion, recreateIndices map[string]struc
 // for maps/slices/structs). If not an error is returned. If they are, the first
 // return value indicates if this is a field that needs it index recreated
 // (currently for ints that are packed with fixed width encoding).
-func (ft fieldType) compatible(nft fieldType) (bool, error) {
+func (ft fieldType) compatible(nft fieldType, checked map[[2]int]struct{}) (bool, error) {
 	need := func(incr bool, l ...kind) (bool, error) {
 		for _, k := range l {
 			if nft.Kind == k {
@@ -1226,10 +1330,10 @@ func (ft fieldType) compatible(nft fieldType) (bool, error) {
 		if nk != k {
 			return false, fmt.Errorf("map to %v: %w", nk, ErrIncompatible)
 		}
-		if _, err := ft.MapKey.compatible(*nft.MapKey); err != nil {
+		if _, err := ft.MapKey.compatible(*nft.MapKey, checked); err != nil {
 			return false, fmt.Errorf("map key: %w", err)
 		}
-		if _, err := ft.MapValue.compatible(*nft.MapValue); err != nil {
+		if _, err := ft.MapValue.compatible(*nft.MapValue, checked); err != nil {
 			return false, fmt.Errorf("map value: %w", err)
 		}
 		return false, nil
@@ -1237,7 +1341,7 @@ func (ft fieldType) compatible(nft fieldType) (bool, error) {
 		if nk != k {
 			return false, fmt.Errorf("slice to %v: %w", nk, ErrIncompatible)
 		}
-		if _, err := ft.List.compatible(*nft.List); err != nil {
+		if _, err := ft.List.compatible(*nft.List, checked); err != nil {
 			return false, fmt.Errorf("list: %w", err)
 		}
 		return false, nil
@@ -1245,10 +1349,22 @@ func (ft fieldType) compatible(nft fieldType) (bool, error) {
 		if nk != k {
 			return false, fmt.Errorf("struct to %v: %w", nk, ErrIncompatible)
 		}
-		for _, nf := range nft.Fields {
-			for _, f := range ft.Fields {
+
+		// For ondiskVersion2, the seqs are both nonzero, and we must check that we already
+		// did the check to prevent recursion.
+		haveSeq := nft.FieldsTypeSeq != 0 || ft.FieldsTypeSeq != 0
+		if haveSeq {
+			k := [2]int{nft.FieldsTypeSeq, ft.FieldsTypeSeq}
+			if _, ok := checked[k]; ok {
+				return false, nil
+			}
+			checked[k] = struct{}{} // Set early to prevent recursion in call below.
+		}
+
+		for _, nf := range nft.structFields {
+			for _, f := range ft.structFields {
 				if nf.Name == f.Name {
-					_, err := f.Type.compatible(nf.Type)
+					_, err := f.Type.compatible(nf.Type, checked)
 					if err != nil {
 						return false, fmt.Errorf("field %q: %w", nf.Name, err)
 					}
@@ -1267,11 +1383,11 @@ func (ft fieldType) hasNonzeroField(stopAtPtr bool) bool {
 	}
 	switch ft.Kind {
 	case kindMap:
-		return ft.List.hasNonzeroField(true)
-	case kindSlice:
 		return ft.MapValue.hasNonzeroField(true)
+	case kindSlice:
+		return ft.List.hasNonzeroField(true)
 	case kindStruct:
-		for _, f := range ft.Fields {
+		for _, f := range ft.structFields {
 			if f.Nonzero || f.Type.hasNonzeroField(true) {
 				return true
 			}

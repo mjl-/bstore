@@ -78,7 +78,7 @@ func (ft fieldType) equal(ov, v reflect.Value) (r bool) {
 		}
 		return bytes.Equal(obuf, buf)
 	case kindStruct:
-		for _, f := range ft.Fields {
+		for _, f := range ft.structFields {
 			fov := ov.FieldByIndex(f.structField.Index)
 			fv := v.FieldByIndex(f.structField.Index)
 			if !f.Type.equal(fov, fv) {

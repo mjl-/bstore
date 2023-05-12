@@ -53,7 +53,7 @@ func (f field) applyDefault(rv reflect.Value) error {
 }
 
 // only for recursing. we do not support recursing into maps because it would
-// involve more work making values settable. and how sensible it it anyway?
+// involve more work making values settable. and how sensible is it anyway?
 func (ft fieldType) applyDefault(rv reflect.Value) error {
 	if ft.Ptr && (rv.IsZero() || rv.IsNil()) {
 		return nil
@@ -69,7 +69,7 @@ func (ft fieldType) applyDefault(rv reflect.Value) error {
 			}
 		}
 	case kindStruct:
-		for _, nf := range ft.Fields {
+		for _, nf := range ft.structFields {
 			nfv := rv.FieldByIndex(nf.structField.Index)
 			if err := nf.applyDefault(nfv); err != nil {
 				return err

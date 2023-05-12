@@ -259,9 +259,9 @@ func (ft fieldType) parse(p *parser, rv reflect.Value) {
 		}
 		rv.Set(mp)
 	case kindStruct:
-		fm := p.Fieldmap(len(ft.Fields))
+		fm := p.Fieldmap(len(ft.structFields))
 		strct := reflect.New(rv.Type()).Elem()
-		for i, f := range ft.Fields {
+		for i, f := range ft.structFields {
 			if f.structField.Type == nil {
 				f.Type.skip(p)
 				continue
@@ -317,8 +317,8 @@ func (ft fieldType) skip(p *parser) {
 			}
 		}
 	case kindStruct:
-		fm := p.Fieldmap(len(ft.Fields))
-		for i, f := range ft.Fields {
+		fm := p.Fieldmap(len(ft.structFields))
+		for i, f := range ft.structFields {
 			if fm.Nonzero(i) {
 				f.Type.skip(p)
 			}

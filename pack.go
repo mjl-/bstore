@@ -259,8 +259,8 @@ func (ft fieldType) pack(p *packer, rv reflect.Value) {
 		}
 		p.PopFieldmap()
 	case kindStruct:
-		p.PushFieldmap(len(ft.Fields))
-		for _, f := range ft.Fields {
+		p.PushFieldmap(len(ft.structFields))
+		for _, f := range ft.structFields {
 			nrv := rv.FieldByIndex(f.structField.Index)
 			if f.Type.isZero(nrv) {
 				if f.Nonzero {

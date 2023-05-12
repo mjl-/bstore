@@ -344,9 +344,9 @@ func (ft fieldType) parseValue(p *parser) any {
 		}
 		return m
 	case kindStruct:
-		fm := p.Fieldmap(len(ft.Fields))
+		fm := p.Fieldmap(len(ft.structFields))
 		m := map[string]any{}
-		for i, f := range ft.Fields {
+		for i, f := range ft.structFields {
 			if fm.Nonzero(i) {
 				m[f.Name] = f.Type.parseValue(p)
 			} else {

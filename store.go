@@ -43,7 +43,7 @@ type DB struct {
 	// needs a wlock.
 	typesMutex sync.RWMutex
 	types      map[reflect.Type]storeType
-	typeNames  map[string]storeType // Go type name to store type, for checking duplicates.
+	typeNames  map[string]storeType // Type name to store type, for checking duplicates.
 
 	statsMutex sync.Mutex
 	stats      Stats
@@ -191,11 +191,33 @@ func (k kind) String() string {
 }
 
 type fieldType struct {
-	Ptr              bool       // If type is a pointer.
-	Kind             kind       // Type with possible Ptr deferenced.
-	Fields           []field    // For kindStruct.
+	Ptr  bool // If type is a pointer.
+	Kind kind // Type with possible Ptr deferenced.
+
+	// For kindStruct, the fields of the struct. Only set for the first use of the type
+	// within a registered type. Code dealing with fields should use structFields
+	// (below) most of the time instead, it has the effective fields after resolving
+	// the type reference.
+	// Named "Fields" in JSON to stay compatible with ondiskVersion1, named
+	// DefinitionFields in Go for clarity.
+	DefinitionFields []field `json:"Fields"`
+
+	// For struct types, the sequence number of this type (within the registered type).
+	// Needed for supporting cyclic types.  Each struct type is assigned the next
+	// sequence number. The registered type implicitly has sequence 1. If positive,
+	// this defines a type (i.e. when it is first encountered analyzing fields
+	// depth-first). If negative, it references the type with positive seq (when a
+	// field is encountered of a type that was seen before). New since ondiskVersion2,
+	// structs in ondiskVersion1 will have zero value 0.
+	FieldsTypeSeq int
+
+	// Fields after taking cyclic types into account. Set when registering/loading a
+	// type. Not stored on disk because of potential cyclic data.
+	structFields []field
+
 	MapKey, MapValue *fieldType // For kindMap.
 	List             *fieldType // For kindSlice.
+
 }
 
 func (ft fieldType) String() string {

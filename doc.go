@@ -32,6 +32,9 @@ Note: int and uint are stored as int32 and uint32, for compatibility of database
 files between 32bit and 64bit systems. Where possible, use explicit (u)int32 or
 (u)int64 types.
 
+Cyclic types are supported, but cyclic data is not. Attempting to store cyclic
+data will likely result in a stack overflow panic.
+
 Embedded structs are handled by storing the individual fields of the embedded
 struct. The named embedded type is not part of the type schema, and can
 currently only be used with UpdateField and UpdateFields, not for filtering.

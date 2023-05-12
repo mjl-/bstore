@@ -953,14 +953,18 @@ func TestQueryPtr(t *testing.T) {
 }
 
 func TestEmbed(t *testing.T) {
+	type Other struct {
+		NestedEmbed bool
+	}
 	type Flags struct {
-		Seen bool
-		Junk bool
+		Seen  bool
+		Junk  bool
+		Other Other
 	}
 	type Msg struct {
-		ID int
-		Flags
+		ID   int
 		Name string
+		Flags
 	}
 
 	path := "testdata/embed.db"
@@ -969,7 +973,7 @@ func TestEmbed(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	m0 := Msg{0, Flags{true, false}, "name"}
+	m0 := Msg{0, "name", Flags{true, false, Other{true}}}
 	err = db.Insert(&m0)
 	tcheck(t, err, "insert")
 
@@ -980,26 +984,26 @@ func TestEmbed(t *testing.T) {
 	n, err := QueryDB[Msg](db).FilterEqual("Name", "name").Count()
 	tcompare(t, err, n, 1, "filter embedded field seen")
 
-	n, err = QueryDB[Msg](db).UpdateNonzero(Msg{Flags: Flags{false, true}})
+	n, err = QueryDB[Msg](db).UpdateNonzero(Msg{Flags: Flags{false, true, Other{true}}})
 	tcompare(t, err, n, 1, "updatenonzero for embed field")
 
 	// Flags is not treated as non-zero struct, but the individual fields are compared, so Seen is not cleared, but Junk is set.
-	m0.Flags = Flags{true, true}
+	m0.Flags = Flags{true, true, Other{true}}
 	err = db.Get(&x0)
 	tcompare(t, err, x0, m0, "get after updatenonzero, with embed")
 
 	n, err = QueryDB[Msg](db).UpdateFields(map[string]any{"Seen": true, "Junk": false})
 	tcompare(t, err, n, 1, "updatefields for embedded fields")
 
-	m0.Flags = Flags{true, false}
+	m0.Flags = Flags{true, false, Other{true}}
 	x0 = Msg{ID: m0.ID}
 	err = db.Get(&x0)
 	tcompare(t, err, x0, m0, "get after updatefields, with embed")
 
-	n, err = QueryDB[Msg](db).UpdateField("Flags", Flags{true, false})
+	n, err = QueryDB[Msg](db).UpdateField("Flags", Flags{true, false, Other{true}})
 	tcompare(t, err, n, 1, "updatefield for  field")
 
-	m0.Flags = Flags{true, false}
+	m0.Flags = Flags{true, false, Other{true}}
 	err = db.Get(&x0)
 	tcompare(t, err, x0, m0, "get after updatefield, with embed")
 }
