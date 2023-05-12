@@ -95,14 +95,14 @@ func TestDefault(t *testing.T) {
 	u0.Timeptr = &u0.Time
 	x0 := u0
 
-	err = db.Insert(&u0)
+	err = db.Insert(ctxbg, &u0)
 	x0.ID = u0.ID
 	tcompare(t, err, u0, x0, "insert with nonzero values")
 
 	tmdef, err := time.Parse(time.RFC3339, "2022-10-18T07:05:02-02:00")
 	tcheck(t, err, "parse time")
 	var u1 User
-	err = db.Insert(&u1)
+	err = db.Insert(ctxbg, &u1)
 	x1 := User{u1.ID, false, true, 100, 8, 200, 300, 400, 32, 8, 16, 32, 64, 10.5, 111.11, "string", u1.Time, tmdef, &u1.Int, &u1.String, u1.Timeptr}
 	tcompare(t, err, u1, x1, "insert with zero and default values")
 	if u1.Time.Sub(now) > time.Second {
@@ -113,7 +113,7 @@ func TestDefault(t *testing.T) {
 	}
 
 	d0 := Deep{0, Struct{0}, []Struct{{0}}}
-	err = db.Insert(&d0)
+	err = db.Insert(ctxbg, &d0)
 	xd0 := Deep{d0.ID, Struct{123}, []Struct{{123}}}
 	tcompare(t, err, d0, xd0, "deeper default values")
 }

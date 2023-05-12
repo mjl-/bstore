@@ -28,39 +28,39 @@ func TestIntwidth(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Insert(&User{math.MinInt32 - 1, 1})
+	err = db.Insert(ctxbg, &User{math.MinInt32 - 1, 1})
 	tneed(t, err, ErrParam, "out of range")
 
-	err = db.Insert(&User{math.MaxInt32 + 1, 1})
+	err = db.Insert(ctxbg, &User{math.MaxInt32 + 1, 1})
 	tneed(t, err, ErrParam, "out of range")
 
-	err = db.Insert(&User{0, math.MaxUint32 + 1})
+	err = db.Insert(ctxbg, &User{0, math.MaxUint32 + 1})
 	tneed(t, err, ErrParam, "out of range")
 
 	u0 := User{math.MinInt32, 1}
-	err = db.Insert(&u0)
+	err = db.Insert(ctxbg, &u0)
 	tcheck(t, err, "insert user")
-	err = db.Get(&u0)
+	err = db.Get(ctxbg, &u0)
 	tcheck(t, err, "get user")
 
 	u1 := User{math.MaxInt32, 1}
-	err = db.Insert(&u1)
+	err = db.Insert(ctxbg, &u1)
 	tcheck(t, err, "insert user")
-	err = db.Get(&u1)
+	err = db.Get(ctxbg, &u1)
 	tcheck(t, err, "get user")
 
-	err = db.Insert(&User2{math.MaxUint32 + 1, 1})
+	err = db.Insert(ctxbg, &User2{math.MaxUint32 + 1, 1})
 	tneed(t, err, ErrParam, "out of range")
 
-	err = db.Insert(&User2{0, math.MinInt32 - 1})
+	err = db.Insert(ctxbg, &User2{0, math.MinInt32 - 1})
 	tneed(t, err, ErrParam, "out of range")
 
-	err = db.Insert(&User2{0, math.MaxInt32 + 1})
+	err = db.Insert(ctxbg, &User2{0, math.MaxInt32 + 1})
 	tneed(t, err, ErrParam, "out of range")
 
 	u2 := User2{math.MaxUint32, 1}
-	err = db.Insert(&u2)
+	err = db.Insert(ctxbg, &u2)
 	tcheck(t, err, "insert user")
-	err = db.Get(&u2)
+	err = db.Get(ctxbg, &u2)
 	tcheck(t, err, "get user")
 }

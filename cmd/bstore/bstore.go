@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
@@ -19,11 +20,21 @@ import (
 	"github.com/mjl-/bstore"
 )
 
+var ctxbg = context.Background()
+
 func xcheckf(err error, format string, args ...any) {
 	if err != nil {
 		msg := fmt.Sprintf(format, args...)
 		log.Fatalf("%s: %s", msg, err)
 	}
+}
+
+func xdbread(db *bstore.DB, xfn func(tx *bstore.Tx)) {
+	err := db.Read(ctxbg, func(tx *bstore.Tx) error {
+		xfn(tx)
+		return nil
+	})
+	xcheckf(err, "tx")
 }
 
 func usage() {
@@ -76,7 +87,7 @@ func main() {
 func xopen(path string) *bstore.DB {
 	_, err := os.Stat(path)
 	xcheckf(err, "stat")
-	db, err := bstore.Open(path, nil)
+	db, err := bstore.Open(ctxbg, path, nil)
 	xcheckf(err, "open database")
 	return db
 }
@@ -86,11 +97,13 @@ func types(args []string) {
 		usage()
 	}
 	db := xopen(args[0])
-	l, err := db.Types()
-	xcheckf(err, "list types")
-	for _, name := range l {
-		fmt.Println(name)
-	}
+	xdbread(db, func(tx *bstore.Tx) {
+		l, err := tx.Types()
+		xcheckf(err, "list types")
+		for _, name := range l {
+			fmt.Println(name)
+		}
+	})
 }
 
 func drop(args []string) {
@@ -98,7 +111,7 @@ func drop(args []string) {
 		usage()
 	}
 	db := xopen(args[0])
-	err := db.Drop(args[1])
+	err := db.Drop(ctxbg, args[1])
 	xcheckf(err, "drop type")
 }
 
@@ -157,11 +170,13 @@ func keys(args []string) {
 	}
 
 	db := xopen(args[0])
-	err := db.Keys(args[1], func(v any) error {
-		fmt.Println(v)
-		return nil
+	xdbread(db, func(tx *bstore.Tx) {
+		err := tx.Keys(args[1], func(v any) error {
+			fmt.Println(v)
+			return nil
+		})
+		xcheckf(err, "keys")
 	})
-	xcheckf(err, "keys")
 }
 
 func records(args []string) {
@@ -170,11 +185,13 @@ func records(args []string) {
 	}
 
 	db := xopen(args[0])
-	var fields []string
-	err := db.Records(args[1], &fields, func(v map[string]any) error {
-		return json.NewEncoder(os.Stdout).Encode(v)
+	xdbread(db, func(tx *bstore.Tx) {
+		var fields []string
+		err := tx.Records(args[1], &fields, func(v map[string]any) error {
+			return json.NewEncoder(os.Stdout).Encode(v)
+		})
+		xcheckf(err, "records")
 	})
-	xcheckf(err, "records")
 }
 
 func record(args []string) {
@@ -183,13 +200,15 @@ func record(args []string) {
 	}
 
 	db := xopen(args[0])
-	var fields []string
-	record, err := db.Record(args[1], args[2], &fields)
-	xcheckf(err, "record")
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "\t")
-	err = enc.Encode(record)
-	xcheckf(err, "marshal record")
+	xdbread(db, func(tx *bstore.Tx) {
+		var fields []string
+		record, err := tx.Record(args[1], args[2], &fields)
+		xcheckf(err, "record")
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "\t")
+		err = enc.Encode(record)
+		xcheckf(err, "marshal record")
+	})
 }
 
 func exportcsv(args []string) {
@@ -199,58 +218,60 @@ func exportcsv(args []string) {
 
 	db := xopen(args[0])
 	var w *csv.Writer
-	var fields []string
-	var record []string
-	err := db.Records(args[1], &fields, func(v map[string]any) error {
-		if w == nil {
-			w = csv.NewWriter(os.Stdout)
-			if err := w.Write(fields); err != nil {
-				return err
+	xdbread(db, func(tx *bstore.Tx) {
+		var fields []string
+		var record []string
+		err := tx.Records(args[1], &fields, func(v map[string]any) error {
+			if w == nil {
+				w = csv.NewWriter(os.Stdout)
+				if err := w.Write(fields); err != nil {
+					return err
+				}
+				record = make([]string, len(fields))
 			}
-			record = make([]string, len(fields))
-		}
-		for i, f := range fields {
-			var s string
-			record[i] = ""
-			switch fv := v[f].(type) {
-			case []byte:
-				if len(fv) == 0 {
-					continue
-				}
-				if utf8.Valid(fv) {
-					s = fmt.Sprintf("%q", fv)
-				} else {
-					s = base64.StdEncoding.EncodeToString(fv)
-				}
-			case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, uintptr, float32, float64, complex64, complex128, string:
-				s = fmt.Sprintf("%v", v[f])
-			default:
-				rv := reflect.ValueOf(v[f])
-				switch rv.Kind() {
-				case reflect.Slice, reflect.Map:
-					if rv.Len() == 0 {
+			for i, f := range fields {
+				var s string
+				record[i] = ""
+				switch fv := v[f].(type) {
+				case []byte:
+					if len(fv) == 0 {
 						continue
 					}
-				case reflect.Ptr:
-					if rv.IsNil() {
-						continue
+					if utf8.Valid(fv) {
+						s = fmt.Sprintf("%q", fv)
+					} else {
+						s = base64.StdEncoding.EncodeToString(fv)
 					}
-				}
-				buf, err := json.Marshal(v[f])
-				if err != nil {
+				case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, uintptr, float32, float64, complex64, complex128, string:
 					s = fmt.Sprintf("%v", v[f])
-				} else {
-					s = string(buf)
+				default:
+					rv := reflect.ValueOf(v[f])
+					switch rv.Kind() {
+					case reflect.Slice, reflect.Map:
+						if rv.Len() == 0 {
+							continue
+						}
+					case reflect.Ptr:
+						if rv.IsNil() {
+							continue
+						}
+					}
+					buf, err := json.Marshal(v[f])
+					if err != nil {
+						s = fmt.Sprintf("%v", v[f])
+					} else {
+						s = string(buf)
+					}
 				}
+				record[i] = s
 			}
-			record[i] = s
-		}
-		return w.Write(record)
+			return w.Write(record)
+		})
+		xcheckf(err, "records")
 	})
-	xcheckf(err, "records")
 	if w != nil {
 		w.Flush()
-		err = w.Error()
+		err := w.Error()
 		xcheckf(err, "write csv")
 	}
 }
@@ -320,17 +341,19 @@ func (e *exporter) export(name string) error {
 
 	var fields []string
 	var n int
-	err := e.db.Records(name, &fields, func(record map[string]any) error {
-		if n > 0 {
-			e.writeStr(",")
-		}
-		e.writeStr("\n")
-		e.writePrefix(1)
-		buf, err := json.Marshal(record)
-		e.check(err, "marshal record")
-		e.write(buf)
-		n++
-		return nil
+	err := e.db.Read(ctxbg, func(tx *bstore.Tx) error {
+		return tx.Records(name, &fields, func(record map[string]any) error {
+			if n > 0 {
+				e.writeStr(",")
+			}
+			e.writeStr("\n")
+			e.writePrefix(1)
+			buf, err := json.Marshal(record)
+			e.check(err, "marshal record")
+			e.write(buf)
+			n++
+			return nil
+		})
 	})
 	if err != nil {
 		return err
@@ -356,7 +379,12 @@ func exportAllJSON(db *bstore.DB) (rerr error) {
 	e := exporter{db, 1, bufio.NewWriter(os.Stdout)}
 	defer e.recover(&rerr)
 
-	types, err := db.Types()
+	var types []string
+	err := db.Read(ctxbg, func(tx *bstore.Tx) error {
+		var err error
+		types, err = tx.Types()
+		return err
+	})
 	if err != nil {
 		return err
 	}

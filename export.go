@@ -13,15 +13,17 @@ import (
 // Types returns the types present in the database, regardless of whether they
 // are currently registered using Open or Register. Useful for exporting data
 // with Keys and Records.
-func (db *DB) Types() ([]string, error) {
-	var types []string
-	err := db.Read(func(tx *Tx) error {
-		return tx.btx.ForEach(func(bname []byte, b *bolt.Bucket) error {
-			// note: we do not track stats for types operations.
+func (tx *Tx) Types() ([]string, error) {
+	if err := tx.ctx.Err(); err != nil {
+		return nil, err
+	}
 
-			types = append(types, string(bname))
-			return nil
-		})
+	var types []string
+	err := tx.btx.ForEach(func(bname []byte, b *bolt.Bucket) error {
+		// note: we do not track stats for types operations.
+
+		types = append(types, string(bname))
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -34,6 +36,10 @@ func (db *DB) Types() ([]string, error) {
 // reflect.Type to parse into. It parses to a map, e.g. for export to JSON. The
 // returned typeVersion has no structFields set in its fields.
 func (db *DB) prepareType(tx *Tx, typeName string) (map[uint32]*typeVersion, *typeVersion, *bolt.Bucket, []string, error) {
+	if err := tx.ctx.Err(); err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	rb, err := tx.recordsBucket(typeName, 0.5)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -74,23 +80,29 @@ func (db *DB) prepareType(tx *Tx, typeName string) (map[uint32]*typeVersion, *ty
 // Keys returns the parsed primary keys for the type "typeName". The type does
 // not have to be registered with Open or Register. For use with Record(s) to
 // export data.
-func (db *DB) Keys(typeName string, fn func(pk any) error) error {
-	return db.Read(func(tx *Tx) error {
-		_, tv, rb, _, err := db.prepareType(tx, typeName)
-		if err != nil {
-			return err
+func (tx *Tx) Keys(typeName string, fn func(pk any) error) error {
+	_, tv, rb, _, err := tx.db.prepareType(tx, typeName)
+	if err != nil {
+		return err
+	}
+
+	ctxDone := tx.ctx.Done()
+
+	// todo: do not pass nil parser?
+	v := reflect.New(reflect.TypeOf(tv.Fields[0].Type.zero(nil))).Elem()
+	return rb.ForEach(func(bk, bv []byte) error {
+		tx.stats.Records.Cursor++
+
+		select {
+		case <-ctxDone:
+			return tx.ctx.Err()
+		default:
 		}
 
-		// todo: do not pass nil parser?
-		v := reflect.New(reflect.TypeOf(tv.Fields[0].Type.zero(nil))).Elem()
-		return rb.ForEach(func(bk, bv []byte) error {
-			tx.stats.Records.Cursor++
-
-			if err := parsePK(v, bk); err != nil {
-				return err
-			}
-			return fn(v.Interface())
-		})
+		if err := parsePK(v, bk); err != nil {
+			return err
+		}
+		return fn(v.Interface())
 	})
 }
 
@@ -98,108 +110,109 @@ func (db *DB) Keys(typeName string, fn func(pk any) error) error {
 // "Fields" is set to the fields of the type. The type does not have to be
 // registered with Open or Register.  Record parses the data without the Go
 // type present. BinaryMarshal fields are returned as bytes.
-func (db *DB) Record(typeName, key string, fields *[]string) (map[string]any, error) {
-	var r map[string]any
-	err := db.Read(func(tx *Tx) error {
-		versions, tv, rb, xfields, err := db.prepareType(tx, typeName)
-		if err != nil {
-			return err
-		}
-		*fields = xfields
+func (tx *Tx) Record(typeName, key string, fields *[]string) (map[string]any, error) {
+	versions, tv, rb, xfields, err := tx.db.prepareType(tx, typeName)
+	if err != nil {
+		return nil, err
+	}
+	*fields = xfields
 
-		var kv any
-		switch tv.Fields[0].Type.Kind {
-		case kindBool:
-			switch key {
-			case "true":
-				kv = true
-			case "false":
-				kv = false
-			default:
-				err = fmt.Errorf("%w: invalid bool %q", ErrParam, key)
-			}
-		case kindInt8:
-			kv, err = strconv.ParseInt(key, 10, 8)
-		case kindInt16:
-			kv, err = strconv.ParseInt(key, 10, 16)
-		case kindInt32:
-			kv, err = strconv.ParseInt(key, 10, 32)
-		case kindInt:
-			kv, err = strconv.ParseInt(key, 10, 32)
-		case kindInt64:
-			kv, err = strconv.ParseInt(key, 10, 64)
-		case kindUint8:
-			kv, err = strconv.ParseUint(key, 10, 8)
-		case kindUint16:
-			kv, err = strconv.ParseUint(key, 10, 16)
-		case kindUint32:
-			kv, err = strconv.ParseUint(key, 10, 32)
-		case kindUint:
-			kv, err = strconv.ParseUint(key, 10, 32)
-		case kindUint64:
-			kv, err = strconv.ParseUint(key, 10, 64)
-		case kindString:
-			kv = key
-		case kindBytes:
-			kv = []byte(key) // todo: or decode from base64?
+	var kv any
+	switch tv.Fields[0].Type.Kind {
+	case kindBool:
+		switch key {
+		case "true":
+			kv = true
+		case "false":
+			kv = false
 		default:
-			return fmt.Errorf("internal error: unknown primary key kind %v", tv.Fields[0].Type.Kind)
+			err = fmt.Errorf("%w: invalid bool %q", ErrParam, key)
 		}
-		if err != nil {
-			return err
-		}
-		pkv := reflect.ValueOf(kv)
-		kind, err := typeKind(pkv.Type())
-		if err != nil {
-			return err
-		}
-		if kind != tv.Fields[0].Type.Kind {
-			// Convert from various int types above to required type. The ParseInt/ParseUint
-			// calls already validated that the values fit.
-			pkt := reflect.TypeOf(tv.Fields[0].Type.zero(nil))
-			pkv = pkv.Convert(pkt)
-		}
-		k, err := packPK(pkv)
-		if err != nil {
-			return err
-		}
+	case kindInt8:
+		kv, err = strconv.ParseInt(key, 10, 8)
+	case kindInt16:
+		kv, err = strconv.ParseInt(key, 10, 16)
+	case kindInt32:
+		kv, err = strconv.ParseInt(key, 10, 32)
+	case kindInt:
+		kv, err = strconv.ParseInt(key, 10, 32)
+	case kindInt64:
+		kv, err = strconv.ParseInt(key, 10, 64)
+	case kindUint8:
+		kv, err = strconv.ParseUint(key, 10, 8)
+	case kindUint16:
+		kv, err = strconv.ParseUint(key, 10, 16)
+	case kindUint32:
+		kv, err = strconv.ParseUint(key, 10, 32)
+	case kindUint:
+		kv, err = strconv.ParseUint(key, 10, 32)
+	case kindUint64:
+		kv, err = strconv.ParseUint(key, 10, 64)
+	case kindString:
+		kv = key
+	case kindBytes:
+		kv = []byte(key) // todo: or decode from base64?
+	default:
+		return nil, fmt.Errorf("internal error: unknown primary key kind %v", tv.Fields[0].Type.Kind)
+	}
+	if err != nil {
+		return nil, err
+	}
+	pkv := reflect.ValueOf(kv)
+	kind, err := typeKind(pkv.Type())
+	if err != nil {
+		return nil, err
+	}
+	if kind != tv.Fields[0].Type.Kind {
+		// Convert from various int types above to required type. The ParseInt/ParseUint
+		// calls already validated that the values fit.
+		pkt := reflect.TypeOf(tv.Fields[0].Type.zero(nil))
+		pkv = pkv.Convert(pkt)
+	}
+	k, err := packPK(pkv)
+	if err != nil {
+		return nil, err
+	}
 
-		tx.stats.Records.Get++
-		bv := rb.Get(k)
-		if bv == nil {
-			return ErrAbsent
-		}
-		record, err := parseMap(versions, k, bv)
-		if err != nil {
-			return err
-		}
-		r = record
-		return nil
-	})
-	return r, err
+	tx.stats.Records.Get++
+	bv := rb.Get(k)
+	if bv == nil {
+		return nil, ErrAbsent
+	}
+	record, err := parseMap(versions, k, bv)
+	if err != nil {
+		return nil, err
+	}
+	return record, nil
 }
 
 // Records calls "fn" for each record of "typeName". Records sets "fields" to
 // the fields of the type. The type does not have to be registered with Open or
 // Register.  Record parses the data without the Go type present. BinaryMarshal
 // fields are returned as bytes.
-func (db *DB) Records(typeName string, fields *[]string, fn func(map[string]any) error) error {
-	return db.Read(func(tx *Tx) error {
-		versions, _, rb, xfields, err := db.prepareType(tx, typeName)
+func (tx *Tx) Records(typeName string, fields *[]string, fn func(map[string]any) error) error {
+	versions, _, rb, xfields, err := tx.db.prepareType(tx, typeName)
+	if err != nil {
+		return err
+	}
+	*fields = xfields
+
+	ctxDone := tx.ctx.Done()
+
+	return rb.ForEach(func(bk, bv []byte) error {
+		tx.stats.Records.Cursor++
+
+		select {
+		case <-ctxDone:
+			return tx.ctx.Err()
+		default:
+		}
+
+		record, err := parseMap(versions, bk, bv)
 		if err != nil {
 			return err
 		}
-		*fields = xfields
-
-		return rb.ForEach(func(bk, bv []byte) error {
-			tx.stats.Records.Cursor++
-
-			record, err := parseMap(versions, bk, bv)
-			if err != nil {
-				return err
-			}
-			return fn(record)
-		})
+		return fn(record)
 	})
 }
 

@@ -1,6 +1,7 @@
 package bstore
 
 import (
+	"context"
 	"errors"
 	"math"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"testing"
 	"time"
 )
+
+var ctxbg = context.Background()
 
 func TestQuery(t *testing.T) {
 	type User struct {
@@ -22,18 +25,18 @@ func TestQuery(t *testing.T) {
 	defer tclose(t, db)
 
 	u0 := User{Name: "mjl"}
-	err = db.Insert(&u0)
+	err = db.Insert(ctxbg, &u0)
 	tcheck(t, err, "insert u0")
 
 	u1 := User{Name: "gopher"}
-	err = db.Insert(&u1)
+	err = db.Insert(ctxbg, &u1)
 	tcheck(t, err, "insert u1")
 
-	err = QueryDB[*User](db).Err()
+	err = QueryDB[*User](ctxbg, db).Err()
 	tneed(t, err, ErrType, "pointer type")
 
 	q := func() *Query[User] {
-		return QueryDB[User](db)
+		return QueryDB[User](ctxbg, db)
 	}
 
 	x0, err := q().FilterID(u0.ID).Get()
@@ -94,7 +97,7 @@ func TestQuery(t *testing.T) {
 	compareID := func(id int, exp User) {
 		t.Helper()
 		x := User{ID: id}
-		err := db.Get(&x)
+		err := db.Get(ctxbg, &x)
 		tcheck(t, err, "get user")
 		if !reflect.DeepEqual(x, exp) {
 			t.Fatalf("compare, got %v, expect %v", x, exp)
@@ -187,7 +190,7 @@ func TestQuery(t *testing.T) {
 	err = q().FilterFn(nil).Err()
 	tneed(t, err, ErrParam, "filterfn with nil fn")
 
-	err = db.Read(func(tx *Tx) error {
+	err = db.Read(ctxbg, func(tx *Tx) error {
 		n, err = QueryTx[User](tx).Count()
 		tcompare(t, err, n, 2, "count all in transaction")
 		return nil
@@ -200,13 +203,13 @@ func TestQuery(t *testing.T) {
 	_, err = q().FilterID(u0.ID).UpdateField("Num", nil)
 	tneed(t, err, ErrParam, "update invalid nil")
 
-	err = db.Get(&u0)
+	err = db.Get(ctxbg, &u0)
 	tcheck(t, err, "get u0")
 
 	n, err = q().FilterID(u1.ID).UpdateFields(map[string]any{"Num": 30, "Name": "other"})
 	tcompare(t, err, n, 1, "update single")
 
-	err = db.Get(&u1)
+	err = db.Get(ctxbg, &u1)
 	tcheck(t, err, "get u1")
 
 	n, err = q().FilterID(u1.ID).UpdateFields(map[string]any{"Num": int32(30)})
@@ -228,7 +231,7 @@ func TestQuery(t *testing.T) {
 	tneed(t, err, ErrParam, "update nonexistent field")
 
 	u2 := User{0, "a", 20}
-	err = db.Insert(&u2)
+	err = db.Insert(ctxbg, &u2)
 	tcheck(t, err, "insert a")
 
 	err = q().FilterGreaterEqual("Bogus", 1).Err()
@@ -416,22 +419,22 @@ func TestQueryTime(t *testing.T) {
 
 	now := time.Now()
 	u0 := User{Name: "mjl", Time: now}
-	err = db.Insert(&u0)
+	err = db.Insert(ctxbg, &u0)
 	tcheck(t, err, "insert u0")
 
 	u1 := User{Name: "gopher", Time: now.Add(-time.Minute)}
-	err = db.Insert(&u1)
+	err = db.Insert(ctxbg, &u1)
 	tcheck(t, err, "insert u1")
 
 	// Strip monotonic time part for comparison below.
 	now = now.Round(0)
-	err = db.Get(&u0)
+	err = db.Get(ctxbg, &u0)
 	tcheck(t, err, "get u0")
-	err = db.Get(&u1)
+	err = db.Get(ctxbg, &u1)
 	tcheck(t, err, "get u1")
 
 	q := func() *Query[User] {
-		return QueryDB[User](db)
+		return QueryDB[User](ctxbg, db)
 	}
 
 	var ids []int
@@ -458,13 +461,13 @@ func TestQueryUnique(t *testing.T) {
 
 	now := time.Now().Round(0)
 	u0 := User{Name: "mjl", Time: now}
-	err = db.Insert(&u0)
+	err = db.Insert(ctxbg, &u0)
 	tcheck(t, err, "insert u0")
 
-	x0, err := QueryDB[User](db).FilterEqual("Name", "mjl").Get()
+	x0, err := QueryDB[User](ctxbg, db).FilterEqual("Name", "mjl").Get()
 	tcompare(t, err, x0, u0, "compare")
 
-	x0, err = QueryDB[User](db).FilterEqual("Name", "mjl", "mjl2").Get()
+	x0, err = QueryDB[User](ctxbg, db).FilterEqual("Name", "mjl", "mjl2").Get()
 	tcompare(t, err, x0, u0, "compare")
 }
 
@@ -481,10 +484,10 @@ func TestQueryUniqueMulti(t *testing.T) {
 	defer tclose(t, db)
 
 	u0 := User{Name: "mjl", Role: "tester"}
-	err = db.Insert(&u0)
+	err = db.Insert(ctxbg, &u0)
 	tcheck(t, err, "insert u0")
 
-	x0, err := QueryDB[User](db).FilterEqual("Name", "mjl").FilterEqual("Role", "tester").Get()
+	x0, err := QueryDB[User](ctxbg, db).FilterEqual("Name", "mjl").FilterEqual("Role", "tester").Get()
 	tcompare(t, err, x0, u0, "compare")
 }
 
@@ -507,21 +510,21 @@ func TestQueryRangeIndex(t *testing.T) {
 	defer tclose(t, db)
 
 	mb0 := Mailbox{Name: "INBOX"}
-	err = db.Insert(&mb0)
+	err = db.Insert(ctxbg, &mb0)
 	tcheck(t, err, "insert mailbox")
 
 	tm0 := time.Now().Round(0)
 	m0 := Msg{UID: 1, MailboxID: mb0.ID, Received: tm0}
-	err = db.Insert(&m0)
+	err = db.Insert(ctxbg, &m0)
 	tcheck(t, err, "insert m0")
 
 	tm1 := time.Now().Round(0)
 	m1 := Msg{UID: 2, MailboxID: mb0.ID, Received: tm1}
-	err = db.Insert(&m1)
+	err = db.Insert(ctxbg, &m1)
 	tcheck(t, err, "m1")
 
 	q := func() *Query[Msg] {
-		return QueryDB[Msg](db)
+		return QueryDB[Msg](ctxbg, db)
 	}
 
 	l, err := q().List()
@@ -624,13 +627,13 @@ func TestNegative(t *testing.T) {
 	s1 := Stats{Celsius: 0}
 	s2 := Stats{Celsius: 1}
 	s3 := Stats{Celsius: math.MaxInt64}
-	err = db.Insert(&s0, &s1, &s2, &s3)
+	err = db.Insert(ctxbg, &s0, &s1, &s2, &s3)
 	tcheck(t, err, "insert")
 
-	xstats, err := QueryDB[Stats](db).SortAsc("Celsius").List()
+	xstats, err := QueryDB[Stats](ctxbg, db).SortAsc("Celsius").List()
 	tcompare(t, err, xstats, []Stats{s0, s1, s2, s3}, "list asc by celsius")
 
-	xstats, err = QueryDB[Stats](db).SortDesc("Celsius").List()
+	xstats, err = QueryDB[Stats](ctxbg, db).SortDesc("Celsius").List()
 	tcompare(t, err, xstats, []Stats{s3, s2, s1, s0}, "list desc by celsius")
 }
 
@@ -644,13 +647,13 @@ func TestQueryLimit(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = QueryDB[User](db).Limit(1).Limit(1).Err()
+	err = QueryDB[User](ctxbg, db).Limit(1).Limit(1).Err()
 	tneed(t, err, ErrParam, "dup limit")
 
-	err = QueryDB[User](db).Limit(0).Err()
+	err = QueryDB[User](ctxbg, db).Limit(0).Err()
 	tneed(t, err, ErrParam, "limit 0")
 
-	err = QueryDB[User](db).Limit(-1).Err()
+	err = QueryDB[User](ctxbg, db).Limit(-1).Err()
 	tneed(t, err, ErrParam, "limit negative")
 }
 
@@ -664,10 +667,10 @@ func TestQueryNotNext(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Insert(&User{})
+	err = db.Insert(ctxbg, &User{})
 	tcheck(t, err, "insert")
 
-	q := QueryDB[User](db)
+	q := QueryDB[User](ctxbg, db)
 	_, err = q.Next()
 	tcheck(t, err, "next")
 
@@ -695,10 +698,10 @@ func TestQueryIncr(t *testing.T) {
 	u0 := User{Num: 1}
 	u1 := User{Num: math.MaxUint32}
 	u2 := User{Num: 50}
-	err = db.Insert(&u0, &u1, &u2)
+	err = db.Insert(ctxbg, &u0, &u1, &u2)
 	tcheck(t, err, "insert users")
 
-	users, err := QueryDB[User](db).FilterLessEqual("Num", uint32(math.MaxUint32)).SortDesc("Num").List()
+	users, err := QueryDB[User](ctxbg, db).FilterLessEqual("Num", uint32(math.MaxUint32)).SortDesc("Num").List()
 	tcompare(t, err, users, []User{u1, u2, u0}, "reverse order and filter to test incr()")
 }
 
@@ -725,49 +728,49 @@ func TestQueryCompare(t *testing.T) {
 	u0 := User{0, true, []byte("a"), 10, -45.2, nil, Struct{0}, nil}
 	u1 := User{0, false, []byte("zzz"), 100, -12.2, nil, Struct{0}, nil}
 	u2 := User{0, false, []byte("aa"), 10000, 100.2, nil, Struct{0}, nil}
-	err = db.Insert(&u0, &u1, &u2)
+	err = db.Insert(ctxbg, &u0, &u1, &u2)
 	tcheck(t, err, "insert users")
 
-	users, err := QueryDB[User](db).FilterEqual("OK", true).List()
+	users, err := QueryDB[User](ctxbg, db).FilterEqual("OK", true).List()
 	tcompare(t, err, users, []User{u0}, "compare bool")
 
-	users, err = QueryDB[User](db).FilterEqual("Data", []byte("aa")).List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Data", []byte("aa")).List()
 	tcompare(t, err, users, []User{u2}, "compare []byte")
 
-	users, err = QueryDB[User](db).FilterEqual("Uint", uint16(10)).List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Uint", uint16(10)).List()
 	tcompare(t, err, users, []User{u0}, "compare uint")
 
-	users, err = QueryDB[User](db).FilterGreater("Float", float32(50.0)).List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Float", float32(50.0)).List()
 	tcompare(t, err, users, []User{u2}, "compare float")
 
-	users, err = QueryDB[User](db).FilterGreater("OK", false).List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("OK", false).List()
 	tcompare(t, err, users, []User{u0}, "compare bool")
 
-	users, err = QueryDB[User](db).FilterGreater("Data", []byte("aa")).SortAsc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Data", []byte("aa")).SortAsc("ID").List()
 	tcompare(t, err, users, []User{u1}, "compare []byte")
 
-	users, err = QueryDB[User](db).FilterGreater("Uint", uint16(10)).SortAsc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Uint", uint16(10)).SortAsc("ID").List()
 	tcompare(t, err, users, []User{u1, u2}, "compare uint")
 
-	users, err = QueryDB[User](db).FilterGreater("Float", float32(50.0)).List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Float", float32(50.0)).List()
 	tcompare(t, err, users, []User{u2}, "compare float")
 
-	err = QueryDB[User](db).FilterGreater("Struct", Struct{1}).Err()
+	err = QueryDB[User](ctxbg, db).FilterGreater("Struct", Struct{1}).Err()
 	tneed(t, err, ErrParam, "comparison on struct")
 
-	err = QueryDB[User](db).FilterGreater("Slice", []string{"test"}).Err()
+	err = QueryDB[User](ctxbg, db).FilterGreater("Slice", []string{"test"}).Err()
 	tneed(t, err, ErrParam, "comparison on slice")
 
-	err = QueryDB[User](db).FilterGreater("Map", map[string]int{"a": 1}).Err()
+	err = QueryDB[User](ctxbg, db).FilterGreater("Map", map[string]int{"a": 1}).Err()
 	tneed(t, err, ErrParam, "comparison on slice")
 
-	err = QueryDB[User](db).SortAsc("Slice").Err()
+	err = QueryDB[User](ctxbg, db).SortAsc("Slice").Err()
 	tneed(t, err, ErrParam, "sort by slice")
 
-	err = QueryDB[User](db).SortAsc("Struct").Err()
+	err = QueryDB[User](ctxbg, db).SortAsc("Struct").Err()
 	tneed(t, err, ErrParam, "sort by struct")
 
-	err = QueryDB[User](db).SortAsc("Map").Err()
+	err = QueryDB[User](ctxbg, db).SortAsc("Map").Err()
 	tneed(t, err, ErrParam, "sort by map")
 }
 
@@ -808,7 +811,7 @@ func TestDeepEqual(t *testing.T) {
 		Map:     map[string]Struct{"key": {"a", ""}},
 		private: "",
 	}
-	err = db.Insert(&u0)
+	err = db.Insert(ctxbg, &u0)
 	tcheck(t, err, "insert")
 	updateStats()
 
@@ -816,25 +819,25 @@ func TestDeepEqual(t *testing.T) {
 	u0.Struct.private = "modified"
 	u0.Slice[0].private = "modified"
 	u0.Map["key"] = Struct{"a", "modified"}
-	err = db.Update(&u0)
+	err = db.Update(ctxbg, &u0)
 	tcheck(t, err, "update")
 	updateStats()
 	tcompare(t, nil, delta.Records.Put, uint(0), "puts after update with only private fields changed")
 
 	nv := u0
 	nv.ID = 0
-	n, err := QueryDB[User](db).UpdateField("Struct", u0.Struct)
+	n, err := QueryDB[User](ctxbg, db).UpdateField("Struct", u0.Struct)
 	tcompare(t, err, n, 1, "update with query")
 	updateStats()
 	tcompare(t, nil, delta.Records.Put, uint(0), "puts after update with only private field changed")
 
-	n, err = QueryDB[User](db).FilterEqual("Struct", Struct{"a", "other"}).Count()
+	n, err = QueryDB[User](ctxbg, db).FilterEqual("Struct", Struct{"a", "other"}).Count()
 	tcompare(t, err, n, 1, "filterequal with other private field")
 
-	n, err = QueryDB[User](db).FilterEqual("Slice", []Struct{{"a", "other"}}, []Struct{{"a", "other2"}}).Count()
+	n, err = QueryDB[User](ctxbg, db).FilterEqual("Slice", []Struct{{"a", "other"}}, []Struct{{"a", "other2"}}).Count()
 	tcompare(t, err, n, 1, "filterin with other private field")
 
-	n, err = QueryDB[User](db).FilterNotEqual("Map", map[string]Struct{"key": {"a", "other"}}).Count()
+	n, err = QueryDB[User](ctxbg, db).FilterNotEqual("Map", map[string]Struct{"key": {"a", "other"}}).Count()
 	tcompare(t, err, n, 0, "filternotequal with other private field")
 }
 
@@ -853,32 +856,32 @@ func TestQueryPtr(t *testing.T) {
 	defer tclose(t, db)
 
 	u0 := User{}
-	err = db.Insert(&u0)
+	err = db.Insert(ctxbg, &u0)
 	tcheck(t, err, "insert")
 
-	err = QueryDB[User](db).FilterEqual("Name", "a").Err()
+	err = QueryDB[User](ctxbg, db).FilterEqual("Name", "a").Err()
 	tneed(t, err, ErrParam, "filter equal name")
 
-	err = QueryDB[User](db).FilterGreater("Name", "a").Err()
+	err = QueryDB[User](ctxbg, db).FilterGreater("Name", "a").Err()
 	tneed(t, err, ErrParam, "filter equal name")
 
-	err = QueryDB[User](db).FilterEqual("Time", time.Now()).Err()
+	err = QueryDB[User](ctxbg, db).FilterEqual("Time", time.Now()).Err()
 	tneed(t, err, ErrParam, "filter equal time")
 
-	err = QueryDB[User](db).FilterEqual("Time", nil).Err()
+	err = QueryDB[User](ctxbg, db).FilterEqual("Time", nil).Err()
 	tneed(t, err, ErrParam, "filter equal nil time")
 
-	err = QueryDB[User](db).SortAsc("Name").Err()
+	err = QueryDB[User](ctxbg, db).SortAsc("Name").Err()
 	tneed(t, err, ErrParam, "sort on ptr")
 
-	err = QueryDB[User](db).SortAsc("Time").Err()
+	err = QueryDB[User](ctxbg, db).SortAsc("Time").Err()
 	tneed(t, err, ErrParam, "sort on ptr")
 
 	name := "b"
 	age := 2
 	time := time.Now().Round(0)
 	u1 := User{0, &name, &age, &time}
-	err = db.Insert(&u1)
+	err = db.Insert(ctxbg, &u1)
 	tcheck(t, err, "insert with ptrs")
 
 	var stats, delta Stats
@@ -890,7 +893,7 @@ func TestQueryPtr(t *testing.T) {
 		stats = nstats
 	}
 
-	err = db.Update(&u1)
+	err = db.Update(ctxbg, &u1)
 	tcheck(t, err, "update")
 	updateStats()
 	tcompare(t, err, delta.Records.Put, uint(0), "puts after update without changes with ptr fields")
@@ -899,7 +902,7 @@ func TestQueryPtr(t *testing.T) {
 	age2 := 2
 	u1.Name = &name2
 	u1.Age = &age2
-	err = db.Update(&u1)
+	err = db.Update(ctxbg, &u1)
 	updateStats()
 	tcompare(t, err, delta.Records.Put, uint(0), "puts after update with different ptrs but same values")
 
@@ -907,48 +910,48 @@ func TestQueryPtr(t *testing.T) {
 	age3 := 3
 	u1.Name = &name3
 	u1.Age = &age3
-	err = db.Update(&u1)
+	err = db.Update(ctxbg, &u1)
 	updateStats()
 	tcompare(t, err, delta.Records.Put, uint(1), "puts after update with different ptrs and different values")
 
-	x1, err := QueryDB[User](db).FilterID(u1.ID).Get()
+	x1, err := QueryDB[User](ctxbg, db).FilterID(u1.ID).Get()
 	tcompare(t, err, x1, u1, "get after update")
 
 	u1.Name = nil
-	err = db.Update(&u1)
+	err = db.Update(ctxbg, &u1)
 	updateStats()
 	tcompare(t, err, delta.Records.Put, uint(1), "puts after update with different ptrs and different values")
-	x1, err = QueryDB[User](db).FilterID(u1.ID).Get()
+	x1, err = QueryDB[User](ctxbg, db).FilterID(u1.ID).Get()
 	tcompare(t, err, x1, u1, "get after update")
 
 	u1.Age = nil
-	n, err := QueryDB[User](db).FilterID(u1.ID).UpdateField("Age", u1.Age)
+	n, err := QueryDB[User](ctxbg, db).FilterID(u1.ID).UpdateField("Age", u1.Age)
 	tcompare(t, err, n, 1, "update age to nil")
 
-	x1, err = QueryDB[User](db).FilterID(u1.ID).Get()
+	x1, err = QueryDB[User](ctxbg, db).FilterID(u1.ID).Get()
 	tcompare(t, err, x1, u1, "get after update")
 
 	u1.Age = &age3
-	n, err = QueryDB[User](db).FilterID(u1.ID).UpdateField("Age", u1.Age)
+	n, err = QueryDB[User](ctxbg, db).FilterID(u1.ID).UpdateField("Age", u1.Age)
 	tcompare(t, err, n, 1, "update age to non-nil")
 
-	x1, err = QueryDB[User](db).FilterID(u1.ID).Get()
+	x1, err = QueryDB[User](ctxbg, db).FilterID(u1.ID).Get()
 	tcompare(t, err, x1, u1, "get after update")
 
-	n, err = QueryDB[User](db).FilterID(u1.ID).UpdateField("Age", 4)
+	n, err = QueryDB[User](ctxbg, db).FilterID(u1.ID).UpdateField("Age", 4)
 	tcompare(t, err, n, 1, "update age to non-ptr int")
 	age4 := 4
 	u1.Age = &age4
 
-	x1, err = QueryDB[User](db).FilterID(u1.ID).Get()
+	x1, err = QueryDB[User](ctxbg, db).FilterID(u1.ID).Get()
 	tcompare(t, err, x1, u1, "get after update")
 
-	n, err = QueryDB[User](db).FilterID(u1.ID).UpdateField("Age", int16(5))
+	n, err = QueryDB[User](ctxbg, db).FilterID(u1.ID).UpdateField("Age", int16(5))
 	tcompare(t, err, n, 1, "update age to non-ptr int16 that will be converted to int")
 	age5 := 5
 	u1.Age = &age5
 
-	x1, err = QueryDB[User](db).FilterID(u1.ID).Get()
+	x1, err = QueryDB[User](ctxbg, db).FilterID(u1.ID).Get()
 	tcompare(t, err, x1, u1, "get after update")
 }
 
@@ -974,37 +977,37 @@ func TestEmbed(t *testing.T) {
 	defer tclose(t, db)
 
 	m0 := Msg{0, "name", Flags{true, false, Other{true}}}
-	err = db.Insert(&m0)
+	err = db.Insert(ctxbg, &m0)
 	tcheck(t, err, "insert")
 
 	x0 := Msg{ID: m0.ID}
-	err = db.Get(&x0)
+	err = db.Get(ctxbg, &x0)
 	tcompare(t, err, x0, m0, "get after insert, with embed")
 
-	n, err := QueryDB[Msg](db).FilterEqual("Name", "name").Count()
+	n, err := QueryDB[Msg](ctxbg, db).FilterEqual("Name", "name").Count()
 	tcompare(t, err, n, 1, "filter embedded field seen")
 
-	n, err = QueryDB[Msg](db).UpdateNonzero(Msg{Flags: Flags{false, true, Other{true}}})
+	n, err = QueryDB[Msg](ctxbg, db).UpdateNonzero(Msg{Flags: Flags{false, true, Other{true}}})
 	tcompare(t, err, n, 1, "updatenonzero for embed field")
 
 	// Flags is not treated as non-zero struct, but the individual fields are compared, so Seen is not cleared, but Junk is set.
 	m0.Flags = Flags{true, true, Other{true}}
-	err = db.Get(&x0)
+	err = db.Get(ctxbg, &x0)
 	tcompare(t, err, x0, m0, "get after updatenonzero, with embed")
 
-	n, err = QueryDB[Msg](db).UpdateFields(map[string]any{"Seen": true, "Junk": false})
+	n, err = QueryDB[Msg](ctxbg, db).UpdateFields(map[string]any{"Seen": true, "Junk": false})
 	tcompare(t, err, n, 1, "updatefields for embedded fields")
 
 	m0.Flags = Flags{true, false, Other{true}}
 	x0 = Msg{ID: m0.ID}
-	err = db.Get(&x0)
+	err = db.Get(ctxbg, &x0)
 	tcompare(t, err, x0, m0, "get after updatefields, with embed")
 
-	n, err = QueryDB[Msg](db).UpdateField("Flags", Flags{true, false, Other{true}})
+	n, err = QueryDB[Msg](ctxbg, db).UpdateField("Flags", Flags{true, false, Other{true}})
 	tcompare(t, err, n, 1, "updatefield for  field")
 
 	m0.Flags = Flags{true, false, Other{true}}
-	err = db.Get(&x0)
+	err = db.Get(ctxbg, &x0)
 	tcompare(t, err, x0, m0, "get after updatefield, with embed")
 }
 
@@ -1025,13 +1028,13 @@ func TestCompareKinds(t *testing.T) {
 
 	m0 := Msg{UID: 1}
 	m1 := Msg{UID: 100}
-	err = db.Insert(&m0, &m1)
+	err = db.Insert(ctxbg, &m0, &m1)
 	tcheck(t, err, "insert")
 
-	n, err := QueryDB[Msg](db).FilterLess("UID", UID(10)).Count()
+	n, err := QueryDB[Msg](ctxbg, db).FilterLess("UID", UID(10)).Count()
 	tcompare(t, err, n, 1, "filterless with type with underlying supported kind")
 
-	msgs, err := QueryDB[Msg](db).SortDesc("UID").List()
+	msgs, err := QueryDB[Msg](ctxbg, db).SortDesc("UID").List()
 	tcompare(t, err, msgs, []Msg{m1, m0}, "list desc")
 }
 
@@ -1053,61 +1056,61 @@ func TestStringIndex(t *testing.T) {
 	u1 := User{Name: "zz"}
 	u2 := User{Name: "zzz"}
 
-	err = db.Insert(&u0, &u1, &u2)
+	err = db.Insert(ctxbg, &u0, &u1, &u2)
 	tcheck(t, err, "insert")
 
-	users, err := QueryDB[User](db).FilterGreater("Name", "z").SortAsc("ID").List()
+	users, err := QueryDB[User](ctxbg, db).FilterGreater("Name", "z").SortAsc("ID").List()
 	tcompare(t, err, users, []User{u1, u2}, "greater")
 
-	users, err = QueryDB[User](db).FilterGreater("Name", "z").FilterLess("Name", "zzz").SortAsc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Name", "z").FilterLess("Name", "zzz").SortAsc("ID").List()
 	tcompare(t, err, users, []User{u1}, "list")
 
-	users, err = QueryDB[User](db).FilterGreater("Name", "zz").FilterLess("Name", "zzzz").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Name", "zz").FilterLess("Name", "zzzz").List()
 	tcompare(t, err, users, []User{u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreater("Name", "zz").FilterLess("Name", "{").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Name", "zz").FilterLess("Name", "{").List()
 	tcompare(t, err, users, []User{u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreater("Name", "zz").FilterLess("Name", "zzzz").SortDesc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Name", "zz").FilterLess("Name", "zzzz").SortDesc("Name").List()
 	tcompare(t, err, users, []User{u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreater("Name", "zz").FilterLess("Name", "{").SortDesc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Name", "zz").FilterLess("Name", "{").SortDesc("Name").List()
 	tcompare(t, err, users, []User{u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreater("Name", "zz").FilterLessEqual("Name", "zzzz").SortDesc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Name", "zz").FilterLessEqual("Name", "zzzz").SortDesc("Name").List()
 	tcompare(t, err, users, []User{u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreater("Name", "zz").FilterLessEqual("Name", "{").SortDesc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Name", "zz").FilterLessEqual("Name", "{").SortDesc("Name").List()
 	tcompare(t, err, users, []User{u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "zzzz").SortDesc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "zzzz").SortDesc("Name").List()
 	tcompare(t, err, users, []User{u2, u1}, "list")
 
-	users, err = QueryDB[User](db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "{").SortDesc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "{").SortDesc("Name").List()
 	tcompare(t, err, users, []User{u2, u1}, "list")
 
-	users, err = QueryDB[User](db).FilterGreater("Name", "zz").FilterLessEqual("Name", "zzzz").SortAsc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Name", "zz").FilterLessEqual("Name", "zzzz").SortAsc("Name").List()
 	tcompare(t, err, users, []User{u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreater("Name", "zz").FilterLessEqual("Name", "{").SortAsc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreater("Name", "zz").FilterLessEqual("Name", "{").SortAsc("Name").List()
 	tcompare(t, err, users, []User{u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "zzzz").SortAsc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "zzzz").SortAsc("Name").List()
 	tcompare(t, err, users, []User{u1, u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "{").SortAsc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "{").SortAsc("Name").List()
 	tcompare(t, err, users, []User{u1, u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreaterEqual("Name", "").FilterLessEqual("Name", "{").SortAsc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreaterEqual("Name", "").FilterLessEqual("Name", "{").SortAsc("Name").List()
 	tcompare(t, err, users, []User{u0, u1, u2}, "list")
 
-	users, err = QueryDB[User](db).FilterGreaterEqual("Name", "").FilterLessEqual("Name", "{").SortDesc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreaterEqual("Name", "").FilterLessEqual("Name", "{").SortDesc("Name").List()
 	tcompare(t, err, users, []User{u2, u1, u0}, "list")
 
-	users, err = QueryDB[User](db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "zz").SortDesc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "zz").SortDesc("Name").List()
 	tcompare(t, err, users, []User{u1}, "list")
 
-	users, err = QueryDB[User](db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "zz").SortAsc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterGreaterEqual("Name", "zz").FilterLessEqual("Name", "zz").SortAsc("Name").List()
 	tcompare(t, err, users, []User{u1}, "list")
 }
 
@@ -1127,58 +1130,58 @@ func TestIDsLimit(t *testing.T) {
 
 	u0 := User{0, "a", "a", "a"}
 	u1 := User{0, "b", "b", "b"}
-	err = db.Insert(&u0, &u1)
+	err = db.Insert(ctxbg, &u0, &u1)
 	tcheck(t, err, "insert")
 
 	// By ID.
-	users, err := QueryDB[User](db).FilterIDs([]int{u0.ID, u1.ID}).Limit(1).List()
+	users, err := QueryDB[User](ctxbg, db).FilterIDs([]int{u0.ID, u1.ID}).Limit(1).List()
 	tcompare(t, err, users, []User{u0}, "filterids with limit")
 
-	users, err = QueryDB[User](db).FilterIDs([]int{u0.ID, u1.ID}).Limit(1).SortDesc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterIDs([]int{u0.ID, u1.ID}).Limit(1).SortDesc("Name").List()
 	tcompare(t, err, users, []User{u1}, "filterids with limit with sort")
 
-	users, err = QueryDB[User](db).FilterIDs([]int{u0.ID, u1.ID}).Limit(1).SortDesc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterIDs([]int{u0.ID, u1.ID}).Limit(1).SortDesc("ID").List()
 	tcompare(t, err, users, []User{u1}, "filterids with limit with sort")
 
-	users, err = QueryDB[User](db).FilterIDs([]int{u0.ID, u1.ID}).Limit(1).SortAsc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterIDs([]int{u0.ID, u1.ID}).Limit(1).SortAsc("ID").List()
 	tcompare(t, err, users, []User{u0}, "filterids with limit with sort")
 
 	// By Name, unique index.
-	users, err = QueryDB[User](db).FilterEqual("Name", "a", "b").Limit(1).List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Name", "a", "b").Limit(1).List()
 	tcompare(t, err, users, []User{u0}, "filterids with limit")
 
-	users, err = QueryDB[User](db).FilterEqual("Name", "a", "b").Limit(1).SortDesc("Name").List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Name", "a", "b").Limit(1).SortDesc("Name").List()
 	tcompare(t, err, users, []User{u1}, "filterids with limit with sort")
 
-	users, err = QueryDB[User](db).FilterEqual("Name", "a", "b").Limit(1).SortDesc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Name", "a", "b").Limit(1).SortDesc("ID").List()
 	tcompare(t, err, users, []User{u1}, "filterids with limit with sort")
 
-	users, err = QueryDB[User](db).FilterEqual("Name", "a", "b").Limit(1).SortAsc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Name", "a", "b").Limit(1).SortAsc("ID").List()
 	tcompare(t, err, users, []User{u0}, "filterids with limit with sort")
 
 	// By Text, regular index.
-	users, err = QueryDB[User](db).FilterEqual("Text", "a", "b").Limit(1).List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Text", "a", "b").Limit(1).List()
 	tcompare(t, err, users, []User{u0}, "filterids with limit")
 
-	users, err = QueryDB[User](db).FilterEqual("Text", "a", "b").Limit(1).SortDesc("Text").List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Text", "a", "b").Limit(1).SortDesc("Text").List()
 	tcompare(t, err, users, []User{u1}, "filterids with limit with sort")
 
-	users, err = QueryDB[User](db).FilterEqual("Text", "a", "b").Limit(1).SortDesc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Text", "a", "b").Limit(1).SortDesc("ID").List()
 	tcompare(t, err, users, []User{u1}, "filterids with limit with sort")
 
-	users, err = QueryDB[User](db).FilterEqual("Text", "a", "b").Limit(1).SortAsc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Text", "a", "b").Limit(1).SortAsc("ID").List()
 	tcompare(t, err, users, []User{u0}, "filterids with limit with sort")
 
 	// By Other, no index.
-	users, err = QueryDB[User](db).FilterEqual("Other", "a", "b").Limit(1).List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Other", "a", "b").Limit(1).List()
 	tcompare(t, err, users, []User{u0}, "filterids with limit")
 
-	users, err = QueryDB[User](db).FilterEqual("Other", "a", "b").Limit(1).SortDesc("Other").List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Other", "a", "b").Limit(1).SortDesc("Other").List()
 	tcompare(t, err, users, []User{u1}, "filterids with limit with sort")
 
-	users, err = QueryDB[User](db).FilterEqual("Other", "a", "b").Limit(1).SortDesc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Other", "a", "b").Limit(1).SortDesc("ID").List()
 	tcompare(t, err, users, []User{u1}, "filterids with limit with sort")
 
-	users, err = QueryDB[User](db).FilterEqual("Other", "a", "b").Limit(1).SortAsc("ID").List()
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Other", "a", "b").Limit(1).SortAsc("ID").List()
 	tcompare(t, err, users, []User{u0}, "filterids with limit with sort")
 }

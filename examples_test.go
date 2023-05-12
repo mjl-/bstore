@@ -1,6 +1,7 @@
 package bstore_test
 
 import (
+	"context"
 	"errors"
 	"log"
 	"os"
@@ -46,6 +47,8 @@ func Example() {
 	path := "testdata/mail.db"
 	os.Remove(path)
 
+	ctx := context.Background() // Possibly replace with a request context.
+
 	// Open or create database mail.db, and register types Msg and Mailbox.
 	// Bstore automatically creates (unique) indices.
 	// If you had previously opened this database with types of the same
@@ -53,7 +56,7 @@ func Example() {
 	// compatible and makes any changes necessary, such as
 	// creating/replacing indices, verifying new constraints (unique,
 	// nonzero, references).
-	db, err := bstore.Open(path, nil, Msg{}, Mailbox{})
+	db, err := bstore.Open(ctx, path, nil, Msg{}, Mailbox{})
 	if err != nil {
 		log.Fatalln("open:", err)
 	}
@@ -67,7 +70,7 @@ func Example() {
 		archive = Mailbox{Name: "Archive"}
 		trash   = Mailbox{Name: "Trash"}
 	)
-	if err := db.Insert(&inbox, &sent, &archive, &trash); err != nil {
+	if err := db.Insert(ctx, &inbox, &sent, &archive, &trash); err != nil {
 		log.Fatalln("insert mailbox:", err)
 	}
 
@@ -82,51 +85,51 @@ func Example() {
 		msg5 = Msg{MailboxID: trash.ID, UID: 2, Received: now}
 		msg6 = Msg{MailboxID: archive.ID, UID: 1, Received: now}
 	)
-	if err := db.Insert(&msg0, &msg1, &msg2, &msg3, &msg4, &msg5, &msg6); err != nil {
+	if err := db.Insert(ctx, &msg0, &msg1, &msg2, &msg3, &msg4, &msg5, &msg6); err != nil {
 		log.Fatalln("insert messages:", err)
 	}
 
 	// Get a single record by ID using Get.
 	nmsg0 := Msg{ID: msg0.ID}
-	if err := db.Get(&nmsg0); err != nil {
+	if err := db.Get(ctx, &nmsg0); err != nil {
 		log.Fatalln("get:", err)
 	}
 
 	// ErrAbsent is returned if the record does not exist.
-	if err := db.Get(&Msg{ID: msg0.ID + 999}); err != bstore.ErrAbsent {
+	if err := db.Get(ctx, &Msg{ID: msg0.ID + 999}); err != bstore.ErrAbsent {
 		log.Fatalln("get did not return ErrAbsent:", err)
 	}
 
 	// Inserting duplicate values results in ErrUnique.
-	if err := db.Insert(&Msg{MailboxID: trash.ID, UID: 1, Received: now}); err == nil || !errors.Is(err, bstore.ErrUnique) {
+	if err := db.Insert(ctx, &Msg{MailboxID: trash.ID, UID: 1, Received: now}); err == nil || !errors.Is(err, bstore.ErrUnique) {
 		log.Fatalln("inserting duplicate message did not return ErrUnique:", err)
 	}
 
 	// Inserting fields that reference non-existing records results in ErrReference.
-	if err := db.Insert(&Msg{MailboxID: trash.ID + 999, UID: 1, Received: now}); err == nil || !errors.Is(err, bstore.ErrReference) {
+	if err := db.Insert(ctx, &Msg{MailboxID: trash.ID + 999, UID: 1, Received: now}); err == nil || !errors.Is(err, bstore.ErrReference) {
 		log.Fatalln("inserting reference to absent mailbox did not return ErrReference:", err)
 	}
 
 	// Deleting records that are still referenced results in ErrReference.
-	if err := db.Delete(&Mailbox{ID: inbox.ID}); err == nil || !errors.Is(err, bstore.ErrReference) {
+	if err := db.Delete(ctx, &Mailbox{ID: inbox.ID}); err == nil || !errors.Is(err, bstore.ErrReference) {
 		log.Fatalln("deleting mailbox that is still referenced did not return ErrReference:", err)
 	}
 
 	// Updating a record checks constraints.
 	nmsg0 = msg0
 	nmsg0.UID = 2 // Not unique.
-	if err := db.Update(&nmsg0); err == nil || !errors.Is(err, bstore.ErrUnique) {
+	if err := db.Update(ctx, &nmsg0); err == nil || !errors.Is(err, bstore.ErrUnique) {
 		log.Fatalln("updating message to already present UID did not return ErrUnique:", err)
 	}
 
 	nmsg0 = msg0
 	nmsg0.Received = time.Time{} // Zero value.
-	if err := db.Update(&nmsg0); err == nil || !errors.Is(err, bstore.ErrZero) {
+	if err := db.Update(ctx, &nmsg0); err == nil || !errors.Is(err, bstore.ErrZero) {
 		log.Fatalln("updating message to zero Received did not return ErrZero:", err)
 	}
 
 	// Use a transaction with DB.Write or DB.Read for a consistent view.
-	err = db.Write(func(tx *bstore.Tx) error {
+	err = db.Write(ctx, func(tx *bstore.Tx) error {
 		// tx also has Insert, Update, Delete, Get.
 		// But we can compose and execute proper queries.
 		//

@@ -2,6 +2,7 @@ package bstore
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -36,7 +37,7 @@ const (
 //
 // Register can be called multiple times, with different types. But types that
 // reference each other must be registered in the same call to Registers.
-func (db *DB) Register(typeValues ...any) error {
+func (db *DB) Register(ctx context.Context, typeValues ...any) error {
 	// We will drop/create new indices as needed. For changed indices, we drop
 	// and recreate. E.g. if an index becomes a unique index, or if a field in
 	// an index changes.  These values map type and index name to their index.
@@ -47,7 +48,7 @@ func (db *DB) Register(typeValues ...any) error {
 	ntypeversions := map[string]*typeVersion{} // New typeversions, through new types or updated versions of existing types.
 	registered := map[string]*storeType{}      // Registered in this call.
 
-	return db.Write(func(tx *Tx) error {
+	return db.Write(ctx, func(tx *Tx) error {
 		for _, t := range typeValues {
 			rt := reflect.TypeOf(t)
 			if rt.Kind() != reflect.Struct {
@@ -281,8 +282,15 @@ func (db *DB) Register(typeValues ...any) error {
 
 						nst := registered[ntname]
 						rv := reflect.New(nst.Type).Elem()
+						ctxDone := ctx.Done()
 						err = b.ForEach(func(bk, bv []byte) error {
 							tx.stats.Records.Cursor++
+
+							select {
+							case <-ctxDone:
+								return tx.ctx.Err()
+							default:
+							}
 
 							if err := nst.parse(rv, bv); err != nil {
 								return fmt.Errorf("parsing record for %s: %w", ntname, err)
@@ -477,8 +485,15 @@ func (db *DB) Register(typeValues ...any) error {
 			}
 			ibkeys := make([][]key, len(idxs))
 
+			ctxDone := ctx.Done()
 			err = rb.ForEach(func(bk, bv []byte) error {
 				tx.stats.Records.Cursor++
+
+				select {
+				case <-ctxDone:
+					return tx.ctx.Err()
+				default:
+				}
 
 				rv := reflect.New(st.Type).Elem()
 				if err := st.parse(rv, bv); err != nil {

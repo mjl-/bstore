@@ -1,6 +1,7 @@
 package bstore
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 )
@@ -23,12 +24,14 @@ import (
 //
 // A Query is not safe for concurrent use.
 type Query[T any] struct {
-	st         storeType     // Of T.
-	pkType     reflect.Type  // Shortcut for st.Current.Fields[0].
-	xtx        *Tx           // If nil, a new transaction is automatically created from db. Using a tx goes through tx() one exists.
-	xdb        *DB           // If not nil, xtx was created to execute the operation and is when the operation finishes (also on error).
-	err        error         // If set, returned by operations. For indicating failed filters, or that an operation has finished.
-	xfilterIDs *filterIDs[T] // Kept separately from filters because these filters make us use the PK without further index planning.
+	ctx        context.Context
+	ctxDone    <-chan struct{} // ctx.Done(), kept here for fast access.
+	st         storeType       // Of T.
+	pkType     reflect.Type    // Shortcut for st.Current.Fields[0].
+	xtx        *Tx             // If nil, a new transaction is automatically created from db. Using a tx goes through tx() one exists.
+	xdb        *DB             // If not nil, xtx was created to execute the operation and is when the operation finishes (also on error).
+	err        error           // If set, returned by operations. For indicating failed filters, or that an operation has finished.
+	xfilterIDs *filterIDs[T]   // Kept separately from filters because these filters make us use the PK without further index planning.
 	xfilters   []filter[T]
 	xorders    []order
 
@@ -166,15 +169,16 @@ func (p *pair[T]) Value(e *exec[T]) (T, error) {
 // QueryDB returns a new Query for type T. When an operation on the query is
 // executed, a read-only/writable transaction is created as appropriate for the
 // operation.
-func QueryDB[T any](db *DB) *Query[T] {
+func QueryDB[T any](ctx context.Context, db *DB) *Query[T] {
 	// We lock db for storeTypes. We keep it locked until Query is done.
 	db.typesMutex.RLock()
 	q := &Query[T]{xdb: db}
-	q.init(db)
+	q.init(ctx, db)
 	return q
 }
 
 // Query returns a new Query that operates on type T using transaction tx.
+// The context of the transaction is used for the query.
 func QueryTx[T any](tx *Tx) *Query[T] {
 	// note: Since we are in a transaction, we already hold an rlock on the
 	// db types.
@@ -183,8 +187,17 @@ func QueryTx[T any](tx *Tx) *Query[T] {
 		q.err = tx.err
 		return q
 	}
-	q.init(tx.db)
+	q.init(tx.ctx, tx.db)
 	return q
+}
+
+func (q *Query[T]) ctxErr() error {
+	select {
+	case <-q.ctxDone:
+		return q.ctx.Err()
+	default:
+		return nil
+	}
 }
 
 // Stats returns the current statistics for this query. When a query finishes,
@@ -194,7 +207,7 @@ func (q *Query[T]) Stats() Stats {
 	return q.stats
 }
 
-func (q *Query[T]) init(db *DB) {
+func (q *Query[T]) init(ctx context.Context, db *DB) {
 	var v T
 	t := reflect.TypeOf(v)
 	if t.Kind() != reflect.Struct {
@@ -205,6 +218,11 @@ func (q *Query[T]) init(db *DB) {
 	if q.err == nil {
 		q.stats.LastType = q.st.Name
 		q.pkType = q.st.Current.Fields[0].structField.Type
+	}
+	q.ctx = ctx
+	q.ctxDone = ctx.Done()
+	if err := q.ctxErr(); q.err == nil && err != nil {
+		q.err = err
 	}
 }
 
@@ -219,7 +237,7 @@ func (q *Query[T]) tx(write bool) (*Tx, error) {
 			q.error(err)
 			return nil, q.err
 		}
-		q.xtx = &Tx{db: q.xdb, btx: tx}
+		q.xtx = &Tx{ctx: q.ctx, db: q.xdb, btx: tx}
 		if write {
 			q.stats.Writes++
 		} else {
@@ -319,6 +337,11 @@ func (q *Query[T]) checkErr() bool {
 	if q.err == nil && q.xtx == nil && q.xdb == nil {
 		// Probably the result of using a Query zero value.
 		q.errorf("%w: invalid query, use QueryDB or QueryTx to make a query", ErrParam)
+	}
+	if q.err == nil {
+		if err := q.ctxErr(); err != nil {
+			q.err = err
+		}
 	}
 	return q.err == nil
 }
@@ -879,7 +902,8 @@ func (q *Query[T]) gather(v T, rv reflect.Value) {
 	}
 }
 
-// Err returns if an error is set on the query. Can happen for invalid filters.
+// Err returns if an error is set on the query. Can happen for invalid filters or
+// canceled contexts.
 // Finished queries return ErrFinished.
 func (q *Query[T]) Err() error {
 	q.checkErr()

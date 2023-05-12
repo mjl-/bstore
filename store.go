@@ -1,6 +1,7 @@
 package bstore
 
 import (
+	"context"
 	"encoding"
 	"errors"
 	"fmt"
@@ -53,8 +54,9 @@ type DB struct {
 //
 // A Tx is not safe for concurrent use.
 type Tx struct {
-	err error // If not nil, operations return this error. Set when write operations fail, e.g. insert with constraint violations.
-	db  *DB   // If nil, this transaction is closed.
+	ctx context.Context // Check before starting operations, query next calls, and during foreach.
+	err error           // If not nil, operations return this error. Set when write operations fail, e.g. insert with constraint violations.
+	db  *DB             // If nil, this transaction is closed.
 	btx *bolt.Tx
 
 	bucketCache map[bucketKey]*bolt.Bucket
@@ -230,7 +232,7 @@ func (ft fieldType) String() string {
 
 // Options configure how a database should be opened or initialized.
 type Options struct {
-	Timeout   time.Duration // Abort if opening DB takes longer than Timeout.
+	Timeout   time.Duration // Abort if opening DB takes longer than Timeout. If not set, the deadline from the context is used.
 	Perm      fs.FileMode   // Permissions for new file if created. If zero, 0600 is used.
 	MustExist bool          // Before opening, check that file exists. If not, io/fs.ErrNotExist is returned.
 }
@@ -243,10 +245,16 @@ type Options struct {
 //
 // Only one DB instance can be open for a file at a time. Use opts.Timeout to
 // specify a timeout during open to prevent indefinite blocking.
-func Open(path string, opts *Options, typeValues ...any) (*DB, error) {
+//
+// The context is used for opening and initializing the database, not for further
+// operations. If the context is canceled while waiting on the database file lock,
+// the operation is not aborted other than when the deadline/timeout is reached.
+func Open(ctx context.Context, path string, opts *Options, typeValues ...any) (*DB, error) {
 	var bopts *bolt.Options
 	if opts != nil && opts.Timeout > 0 {
 		bopts = &bolt.Options{Timeout: opts.Timeout}
+	} else if end, ok := ctx.Deadline(); ok {
+		bopts = &bolt.Options{Timeout: time.Until(end)}
 	}
 	var mode fs.FileMode = 0600
 	if opts != nil && opts.Perm != 0 {
@@ -265,7 +273,7 @@ func Open(path string, opts *Options, typeValues ...any) (*DB, error) {
 	typeNames := map[string]storeType{}
 	types := map[reflect.Type]storeType{}
 	db := &DB{bdb: bdb, typeNames: typeNames, types: types}
-	if err := db.Register(typeValues...); err != nil {
+	if err := db.Register(ctx, typeValues...); err != nil {
 		bdb.Close()
 		return nil, err
 	}
@@ -355,58 +363,67 @@ func (tx *Tx) indexBucket(idx *index) (*bolt.Bucket, error) {
 // If a type is still referenced by another type, eg through a "ref" struct tag,
 // ErrReference is returned.
 // If the type does not exist, ErrAbsent is returned.
-func (db *DB) Drop(name string) error {
-	return db.Write(func(tx *Tx) error {
+func (db *DB) Drop(ctx context.Context, name string) error {
+	var st storeType
+	var ok bool
+	err := db.Write(ctx, func(tx *Tx) error {
 		tx.stats.Bucket.Get++
 		if tx.btx.Bucket([]byte(name)) == nil {
 			return ErrAbsent
 		}
 
-		if st, ok := db.typeNames[name]; ok && len(st.Current.referencedBy) > 0 {
+		st, ok = db.typeNames[name]
+		if ok && len(st.Current.referencedBy) > 0 {
 			return fmt.Errorf("%w: type is still referenced", ErrReference)
-		} else if ok {
-			for ref := range st.Current.references {
-				var n []*index
-				for _, idx := range db.typeNames[ref].Current.referencedBy {
-					if idx.tv != st.Current {
-						n = append(n, idx)
-					}
-				}
-				db.typeNames[ref].Current.referencedBy = n
-			}
-			delete(db.typeNames, name)
-			delete(db.types, st.Type)
 		}
 
 		tx.stats.Bucket.Delete++
 		return tx.btx.DeleteBucket([]byte(name))
 	})
+	if err != nil {
+		return err
+	}
+
+	if ok {
+		for ref := range st.Current.references {
+			var n []*index
+			for _, idx := range db.typeNames[ref].Current.referencedBy {
+				if idx.tv != st.Current {
+					n = append(n, idx)
+				}
+			}
+			db.typeNames[ref].Current.referencedBy = n
+		}
+		delete(db.typeNames, name)
+		delete(db.types, st.Type)
+	}
+	return nil
 }
 
 // Delete calls Delete on a new writable Tx.
-func (db *DB) Delete(values ...any) error {
-	return db.Write(func(tx *Tx) error {
+func (db *DB) Delete(ctx context.Context, values ...any) error {
+	return db.Write(ctx, func(tx *Tx) error {
 		return tx.Delete(values...)
 	})
 }
 
 // Get calls Get on a new read-only Tx.
-func (db *DB) Get(values ...any) error {
-	return db.Read(func(tx *Tx) error {
+func (db *DB) Get(ctx context.Context, values ...any) error {
+	return db.Read(ctx, func(tx *Tx) error {
 		return tx.Get(values...)
 	})
 }
 
 // Insert calls Insert on a new writable Tx.
-func (db *DB) Insert(values ...any) error {
-	return db.Write(func(tx *Tx) error {
+func (db *DB) Insert(ctx context.Context, values ...any) error {
+	return db.Write(ctx, func(tx *Tx) error {
 		return tx.Insert(values...)
 	})
 }
 
 // Update calls Update on a new writable Tx.
-func (db *DB) Update(values ...any) error {
-	return db.Write(func(tx *Tx) error {
+func (db *DB) Update(ctx context.Context, values ...any) error {
+	return db.Write(ctx, func(tx *Tx) error {
 		return tx.Update(values...)
 	})
 }
@@ -539,11 +556,14 @@ func (tv typeVersion) keyValue(tx *Tx, rv reflect.Value, insert bool, rb *bolt.B
 }
 
 // Read calls function fn with a new read-only transaction, ensuring transaction rollback.
-func (db *DB) Read(fn func(*Tx) error) error {
+func (db *DB) Read(ctx context.Context, fn func(*Tx) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	db.typesMutex.RLock()
 	defer db.typesMutex.RUnlock()
 	return db.bdb.View(func(btx *bolt.Tx) error {
-		tx := &Tx{db: db, btx: btx}
+		tx := &Tx{ctx: ctx, db: db, btx: btx}
 		tx.stats.Reads++
 		defer tx.addStats()
 		if err := fn(tx); err != nil {
@@ -555,11 +575,14 @@ func (db *DB) Read(fn func(*Tx) error) error {
 
 // Write calls function fn with a new read-write transaction. If fn returns
 // nil, the transaction is committed. Otherwise the transaction is rolled back.
-func (db *DB) Write(fn func(*Tx) error) error {
+func (db *DB) Write(ctx context.Context, fn func(*Tx) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	db.typesMutex.RLock()
 	defer db.typesMutex.RUnlock()
 	return db.bdb.Update(func(btx *bolt.Tx) error {
-		tx := &Tx{db: db, btx: btx}
+		tx := &Tx{ctx: ctx, db: db, btx: btx}
 		tx.stats.Writes++
 		defer tx.addStats()
 		if err := fn(tx); err != nil {

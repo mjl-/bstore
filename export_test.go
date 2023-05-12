@@ -41,7 +41,7 @@ func TestExport(t *testing.T) {
 	defer db.Close()
 
 	var ids2 []int
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		u0 := User1{0, "hi"}
 		err = tx.Insert(&u0)
 		tcheck(t, err, "insert")
@@ -101,25 +101,30 @@ func TestExport(t *testing.T) {
 	})
 	tcheck(t, err, "write")
 
-	var xids2 []int
-	err = db.Keys("User2", func(id any) error {
-		xids2 = append(xids2, id.(int))
+	err = db.Read(ctxbg, func(tx *Tx) error {
+		var xids2 []int
+		err = tx.Keys("User2", func(id any) error {
+			xids2 = append(xids2, id.(int))
+			return nil
+		})
+		tcompare(t, err, xids2, ids2, "keys")
+
+		var fields []string
+		expFields := []string{"ID", "String", "Time", "Bool", "Boolptr", "Uint", "Bytes", "Struct", "Slice", "Slice2", "Map", "Map2", "Float32", "Float64", "BM"}
+		xids2 = nil
+		err = tx.Records("User2", &fields, func(v map[string]any) error {
+			xids2 = append(xids2, v["ID"].(int))
+			return nil
+		})
+		tcompare(t, err, xids2, ids2, "record ids")
+		tcompare(t, err, expFields, fields, "records fields")
+
+		fields = nil
+		record, err := tx.Record("User2", fmt.Sprintf("%d", ids2[0]), &fields)
+		tcompare(t, err, expFields, fields, "record fields")
+		tcompare(t, err, record["ID"].(int), ids2[0], "record id")
+
 		return nil
 	})
-	tcompare(t, err, xids2, ids2, "keys")
-
-	var fields []string
-	expFields := []string{"ID", "String", "Time", "Bool", "Boolptr", "Uint", "Bytes", "Struct", "Slice", "Slice2", "Map", "Map2", "Float32", "Float64", "BM"}
-	xids2 = nil
-	err = db.Records("User2", &fields, func(v map[string]any) error {
-		xids2 = append(xids2, v["ID"].(int))
-		return nil
-	})
-	tcompare(t, err, xids2, ids2, "record ids")
-	tcompare(t, err, expFields, fields, "records fields")
-
-	fields = nil
-	record, err := db.Record("User2", fmt.Sprintf("%d", ids2[0]), &fields)
-	tcompare(t, err, expFields, fields, "record fields")
-	tcompare(t, err, record["ID"].(int), ids2[0], "record id")
+	tcheck(t, err, "tx")
 }

@@ -20,22 +20,22 @@ func tneedpkkey[T any](t *testing.T, openErr, insertErr error, v T, field string
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Insert(&v)
+	err = db.Insert(ctxbg, &v)
 	if insertErr != nil {
 		tneed(t, err, insertErr, "insert")
 		return
 	}
 	tcheck(t, err, "insert")
 
-	err = db.Get(&v)
+	err = db.Get(ctxbg, &v)
 	tcheck(t, err, "get")
 
-	l, err := QueryDB[T](db).List()
+	l, err := QueryDB[T](ctxbg, db).List()
 	tcompare(t, err, l, []T{v}, "list")
 
 	// Fetch by index.
 	fv := reflect.ValueOf(v).FieldByName(field).Interface()
-	l, err = QueryDB[T](db).FilterEqual(field, fv).List()
+	l, err = QueryDB[T](ctxbg, db).FilterEqual(field, fv).List()
 	tcompare(t, err, l, []T{v}, "list by equal")
 
 	pkv := reflect.ValueOf(v).Field(0).Interface()
@@ -45,8 +45,12 @@ func tneedpkkey[T any](t *testing.T, openErr, insertErr error, v T, field string
 	tname, err := typeName(reflect.TypeOf(v))
 	tcheck(t, err, "typename")
 	var fields []string
-	_, err = db.Record(tname, fmt.Sprintf("%v", pkv), &fields)
-	tcheck(t, err, "record as map")
+	err = db.Read(ctxbg, func(tx *Tx) error {
+		_, err = tx.Record(tname, fmt.Sprintf("%v", pkv), &fields)
+		tcheck(t, err, "record as map")
+		return nil
+	})
+	tcheck(t, err, "tx record")
 }
 
 func TestKeys(t *testing.T) {

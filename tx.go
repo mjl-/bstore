@@ -2,6 +2,7 @@ package bstore
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"reflect"
 
@@ -26,6 +27,10 @@ func (tx *Tx) error() error {
 	}
 	if tx.db == nil {
 		return errTxClosed
+	}
+	if err := tx.ctx.Err(); err != nil {
+		tx.err = err
+		return err
 	}
 	return nil
 }
@@ -420,13 +425,16 @@ func (tx *Tx) update(rb *bolt.Bucket, st storeType, rv, rov reflect.Value, k []b
 //
 // A writable Tx can be committed or rolled back. A read-only transaction must
 // always be rolled back.
-func (db *DB) Begin(writable bool) (*Tx, error) {
+func (db *DB) Begin(ctx context.Context, writable bool) (*Tx, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	btx, err := db.bdb.Begin(writable)
 	if err != nil {
 		return nil, err
 	}
 	db.typesMutex.RLock()
-	tx := &Tx{db: db, btx: btx}
+	tx := &Tx{ctx: ctx, db: db, btx: btx}
 	if writable {
 		tx.stats.Writes++
 	} else {

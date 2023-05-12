@@ -209,8 +209,17 @@ func checkNonzeroRecords(tx *Tx, st storeType, tv *typeVersion, m map[reflect.Ty
 	if err != nil {
 		return err
 	}
+
+	ctxDone := tx.ctx.Done()
+
 	return rb.ForEach(func(bk, bv []byte) error {
 		tx.stats.Records.Cursor++
+
+		select {
+		case <-ctxDone:
+			return tx.ctx.Err()
+		default:
+		}
 
 		// todo optimization: instead of parsing the full record, use the fieldmap to see if the value is nonzero.
 		rv, err := st.parseNew(bk, bv)

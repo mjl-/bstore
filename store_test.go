@@ -72,7 +72,7 @@ func TestMain(m *testing.M) {
 // leverages all test cases for this check.
 func topen(t *testing.T, path string, opts *Options, typeValues ...any) (*DB, error) {
 	t.Helper()
-	db, err := Open(path, opts, typeValues...)
+	db, err := Open(ctxbg, path, opts, typeValues...)
 	if !withReopen || err != nil {
 		return db, err
 	}
@@ -84,7 +84,7 @@ func topen(t *testing.T, path string, opts *Options, typeValues ...any) (*DB, er
 
 	tclose(t, db)
 
-	db, err = Open(path, opts, typeValues...)
+	db, err = Open(ctxbg, path, opts, typeValues...)
 	tcheck(t, err, "open again")
 
 	nversions := map[string]uint32{}
@@ -120,10 +120,10 @@ func TestOpenOptions(t *testing.T) {
 	path := "testdata/openoptions.db"
 	os.Remove(path)
 
-	_, err := Open(path, &Options{MustExist: true}, User{})
+	_, err := Open(ctxbg, path, &Options{MustExist: true}, User{})
 	tneed(t, err, fs.ErrNotExist, "open with MustExist on absent file")
 
-	db, err := Open(path, &Options{Perm: 0700}, User{})
+	db, err := Open(ctxbg, path, &Options{Perm: 0700}, User{})
 	tcheck(t, err, "open")
 	fi, err := os.Stat(path)
 	tcheck(t, err, "stat")
@@ -133,12 +133,12 @@ func TestOpenOptions(t *testing.T) {
 
 	// not closing DB yet, for timeout
 
-	_, err = Open(path, &Options{Timeout: time.Second}, User{})
+	_, err = Open(ctxbg, path, &Options{Timeout: time.Second}, User{})
 	tneed(t, err, bolt.ErrTimeout, "open with timeout")
 
 	tclose(t, db)
 
-	db, err = Open(path, &Options{MustExist: true}, User{})
+	db, err = Open(ctxbg, path, &Options{MustExist: true}, User{})
 	tcheck(t, err, "open with MustExist")
 	tclose(t, db)
 }
@@ -224,7 +224,7 @@ func TestStore(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		nu := User{Registered: now}
 		err := tx.Insert(&nu)
 		tcheck(t, err, "insert new user")
@@ -348,7 +348,7 @@ func TestStore(t *testing.T) {
 	})
 	tcheck(t, err, "write")
 
-	n, err := QueryDB[User](db).Count()
+	n, err := QueryDB[User](ctxbg, db).Count()
 	tcheck(t, err, "count")
 	if n != 2 {
 		t.Fatalf("got %d records, expected 2", n)
@@ -376,7 +376,7 @@ func TestBoolptr(t *testing.T) {
 	xtrue := true
 	xfalse := false
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		n = Boolptr{Value: nil}
 		err := tx.Insert(&n)
 		tcheck(t, err, "insert nil")
@@ -408,7 +408,7 @@ func TestBoolptr(t *testing.T) {
 	db, err = topen(t, "testdata/boolptr.db", nil, Boolptr2{})
 	tcheck(t, err, "open")
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		n2 := Boolptr2{ID: n.ID}
 		err = tx.Get(&n2)
 		tcompare(t, err, n2, Boolptr2{ID: n.ID}, "nil")
@@ -436,7 +436,7 @@ func TestBoolptr(t *testing.T) {
 	db, err = topen(t, "testdata/boolptr.db", nil, Boolptr{})
 	tcheck(t, err, "open")
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		n = Boolptr{ID: n.ID}
 		err = tx.Get(&n)
 		tcompare(t, err, n, Boolptr{ID: n.ID}, "nil")
@@ -467,7 +467,7 @@ func TestBoolptr(t *testing.T) {
 	db, err = topen(t, "testdata/boolptr.db", nil, Boolptr3{})
 	tcheck(t, err, "open")
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		n3 := Boolptr3{ID: n.ID}
 		err = tx.Get(&n3)
 		tcompare(t, err, n3, Boolptr3{ID: n.ID}, "nil")
@@ -678,7 +678,7 @@ func TestUnique(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		a := User{Name: "a"}
 		b := User{Name: "b"}
 		dup := User{Name: "a"}
@@ -693,7 +693,7 @@ func TestUnique(t *testing.T) {
 	})
 	tneed(t, err, ErrUnique, "inserting with existing key")
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		a := User{Name: "a"}
 		b := User{Name: "b"}
 
@@ -708,7 +708,7 @@ func TestUnique(t *testing.T) {
 	})
 	tneed(t, err, ErrUnique, "updating with existing key")
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		return tx.Insert(&User{Name: "test\u0000"})
 	})
 	tneed(t, err, ErrParam, "cannot have string with zero byte")
@@ -742,7 +742,7 @@ func TestReference(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		a := User{}
 
 		// This is fine because GroupID has the zero value.
@@ -793,7 +793,7 @@ func TestCreateIndex(t *testing.T) {
 
 	u0 := User{Name: "a"}
 	u1 := User{Name: "a"}
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		err := tx.Insert(&u0)
 		tcheck(t, err, "insert a")
 
@@ -814,9 +814,9 @@ func TestCreateIndex(t *testing.T) {
 
 	u0 = User{Name: "a"}
 	u1 = User{Name: "b"}
-	err = db.Insert(&u0)
+	err = db.Insert(ctxbg, &u0)
 	tcheck(t, err, "insert u0")
-	err = db.Insert(&u1)
+	err = db.Insert(ctxbg, &u1)
 	tcheck(t, err, "insert u1")
 
 	tclose(t, db)
@@ -825,7 +825,7 @@ func TestCreateIndex(t *testing.T) {
 	tcheck(t, err, "open")
 
 	var ids []int
-	err = QueryDB[User2](db).FilterNonzero(User2{Name: "a"}).IDs(&ids)
+	err = QueryDB[User2](ctxbg, db).FilterNonzero(User2{Name: "a"}).IDs(&ids)
 	tcompare(t, err, ids, []int{u0.ID}, "list")
 
 	tclose(t, db)
@@ -914,12 +914,12 @@ func TestTypeVersions(t *testing.T) {
 	checkTypes("1")
 
 	u := User{Name: "hi"}
-	err = db.Insert(&u)
+	err = db.Insert(ctxbg, &u)
 	tcheck(t, err, "insert user")
 
 	reopen(User2{})
 	checkTypes("1,2")
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		u := User2{Name: "hi2"}
 		if err := tx.Insert(&u); err != nil {
 			t.Fatalf("inserting user: %v", err)
@@ -937,7 +937,7 @@ func TestTypeVersions(t *testing.T) {
 	reopen(User2{})
 	checkTypes("1,2,3,4")
 
-	_, err = QueryDB[User2](db).List()
+	_, err = QueryDB[User2](ctxbg, db).List()
 	tcheck(t, err, "all")
 
 	reopen(User3{})
@@ -967,7 +967,7 @@ func TestInsertSeqdup(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		u1 := User{ID: int(tx.btx.Bucket([]byte("User")).Bucket([]byte("records")).Sequence() + 1)}
 		err := tx.Insert(&u1)
 		tcheck(t, err, "insert")
@@ -997,7 +997,7 @@ func TestRemoveNoautoSeq(t *testing.T) {
 
 	var u0, u1 User
 	var seq0 int
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		err := tx.btx.Bucket([]byte("User")).Bucket([]byte("records")).SetSequence(1)
 		tcheck(t, err, "setsequence")
 		seq0 = 1
@@ -1019,7 +1019,7 @@ func TestRemoveNoautoSeq(t *testing.T) {
 	defer tclose(t, db)
 
 	var seq1 int
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		seq1 = int(tx.btx.Bucket([]byte("User")).Bucket([]byte("records")).Sequence())
 
 		if seq1 == seq0 {
@@ -1048,7 +1048,7 @@ func TestPtrZero(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		u0 := User{}
 		err := tx.Insert(&u0)
 		tcheck(t, err, "insert")
@@ -1110,7 +1110,7 @@ func TestIDTypes(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		// Bytes
 		b := Bytes{ID: []byte("hi")}
 		err := tx.Insert(&b)
@@ -1177,7 +1177,7 @@ func TestChangeIndex(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		u := User{0, "a", "b"}
 		err := tx.Insert(&u)
 		tcheck(t, err, "insert")
@@ -1195,10 +1195,10 @@ func TestChangeIndex(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	n, err := QueryDB[User2](db).FilterEqual("Firstname", "x").Count()
+	n, err := QueryDB[User2](ctxbg, db).FilterEqual("Firstname", "x").Count()
 	tcompare(t, err, n, 1, "count")
 
-	n, err = QueryDB[User2](db).FilterEqual("Firstname", "a").Count()
+	n, err = QueryDB[User2](ctxbg, db).FilterEqual("Firstname", "a").Count()
 	tcompare(t, err, n, 1, "count")
 }
 
@@ -1215,13 +1215,13 @@ func TestEmptyIndex(t *testing.T) {
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 
-	err = db.Insert(&User{Name: "a"}, &User{Name: "b"}, &User{Name: "c"})
+	err = db.Insert(ctxbg, &User{Name: "a"}, &User{Name: "b"}, &User{Name: "c"})
 	tcheck(t, err, "insert")
 
-	n, err := QueryDB[User](db).Count()
+	n, err := QueryDB[User](ctxbg, db).Count()
 	tcompare(t, err, n, 3, "count")
 
-	n, err = QueryDB[User](db).Delete()
+	n, err = QueryDB[User](ctxbg, db).Delete()
 	tcompare(t, err, n, 3, "delete all")
 
 	tclose(t, db)
@@ -1271,7 +1271,7 @@ func TestIndexDrop(t *testing.T) {
 	tcheck(t, err, "open")
 
 	u := User{Name: "x"}
-	err = db.Insert(&u)
+	err = db.Insert(ctxbg, &u)
 	tcheck(t, err, "insert")
 
 	tclose(t, db)
@@ -1279,7 +1279,7 @@ func TestIndexDrop(t *testing.T) {
 	db, err = topen(t, path, nil, User2{})
 	tcheck(t, err, "open")
 
-	_, err = QueryDB[User2](db).FilterNonzero(User2{Name: "x"}).Get()
+	_, err = QueryDB[User2](ctxbg, db).FilterNonzero(User2{Name: "x"}).Get()
 	tcheck(t, err, "get by name")
 }
 
@@ -1300,10 +1300,10 @@ func TestIndexWiden(t *testing.T) {
 	tcheck(t, err, "open")
 
 	u := User{Num: 10}
-	err = db.Insert(&u)
+	err = db.Insert(ctxbg, &u)
 	tcheck(t, err, "insert")
 
-	_, err = QueryDB[User](db).FilterNonzero(User{Num: 10}).Get()
+	_, err = QueryDB[User](ctxbg, db).FilterNonzero(User{Num: 10}).Get()
 	tcheck(t, err, "get by num")
 
 	tclose(t, db)
@@ -1311,7 +1311,7 @@ func TestIndexWiden(t *testing.T) {
 	db, err = topen(t, path, nil, User2{})
 	tcheck(t, err, "open")
 
-	_, err = QueryDB[User2](db).FilterNonzero(User2{Num: 10}).Get()
+	_, err = QueryDB[User2](ctxbg, db).FilterNonzero(User2{Num: 10}).Get()
 	tcheck(t, err, "get by num")
 }
 
@@ -1331,10 +1331,10 @@ func TestNewNonzero(t *testing.T) {
 	tcheck(t, err, "open")
 
 	u := User{}
-	err = db.Insert(&u)
+	err = db.Insert(ctxbg, &u)
 	tcheck(t, err, "insert")
 
-	_, err = QueryDB[User](db).Get()
+	_, err = QueryDB[User](ctxbg, db).Get()
 	tcheck(t, err, "get")
 
 	tclose(t, db)
@@ -1360,12 +1360,12 @@ func TestNonzero(t *testing.T) {
 		os.Remove(path)
 		db, err := topen(t, path, nil, reflect.ValueOf(val).Elem().Interface())
 		tcheck(t, err, "open")
-		err = db.Insert(val)
+		err = db.Insert(ctxbg, val)
 		if exp != nil && (err == nil || !errors.Is(err, exp)) {
 			t.Fatalf("got err %v, expected %v", err, exp)
 		} else if exp == nil && err != nil {
 			t.Fatalf("got err %v, expected nil", err)
-			err = db.Get(val)
+			err = db.Get(ctxbg, val)
 			tcheck(t, err, "get")
 		}
 		tclose(t, db)
@@ -1432,7 +1432,7 @@ func TestIndexRemain(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Drop("User")
+	err = db.Drop(ctxbg, "User")
 	tcheck(t, err, "drop")
 }
 
@@ -1498,14 +1498,14 @@ func TestChangeNonzero(t *testing.T) {
 		db, err := topen(t, "testdata/changenonzero.db", nil, User{})
 		tcheck(t, err, "open")
 
-		err = db.Insert(&good)
+		err = db.Insert(ctxbg, &good)
 		tcheck(t, err, "insert good user")
 
 		tclose(t, db)
 		db, err = topen(t, "testdata/changenonzero.db", nil, User2{})
 		tcheck(t, err, "reopen without zero values") // Should succeed, no zero values.
 
-		err = db.Insert(&bad)
+		err = db.Insert(ctxbg, &bad)
 		tneed(t, err, ErrZero, "inserting zero value")
 
 		tclose(t, db)
@@ -1513,7 +1513,7 @@ func TestChangeNonzero(t *testing.T) {
 		tcheck(t, err, "reopen with original type")
 
 		bad2 := clone(bad)
-		err = db.Insert(&bad2)
+		err = db.Insert(ctxbg, &bad2)
 		tcheck(t, err, "insert user with zero value")
 
 		tclose(t, db)
@@ -1578,7 +1578,7 @@ func TestChangeNonzeroPtr(t *testing.T) {
 		db, err := topen(t, path, nil, reflect.ValueOf(optr).Elem().Interface())
 		tcheck(t, err, "open")
 
-		err = db.Insert(optr)
+		err = db.Insert(ctxbg, optr)
 		tcheck(t, err, "insert")
 
 		tclose(t, db)
@@ -1635,32 +1635,44 @@ func TestDrop(t *testing.T) {
 	db, err := topen(t, "testdata/drop.db", nil)
 	tcheck(t, err, "open")
 
-	types, err := db.Types()
-	tcheck(t, err, "types")
-	if len(types) != 0 {
-		t.Fatalf("got %v, expected 0 types", types)
-	}
+	err = db.Read(ctxbg, func(tx *Tx) error {
+		types, err := tx.Types()
+		tcheck(t, err, "types")
+		if len(types) != 0 {
+			t.Fatalf("got %v, expected 0 types", types)
+		}
+		return nil
+	})
+	tcheck(t, err, "tx types")
 
 	tclose(t, db)
 	db, err = topen(t, "testdata/drop.db", nil, User{})
 	tcheck(t, err, "open")
 
-	types, err = db.Types()
-	tcheck(t, err, "types")
-	if len(types) != 1 || types[0] != "User" {
-		t.Fatalf("got %v, expected [User]", types)
-	}
+	err = db.Read(ctxbg, func(tx *Tx) error {
+		types, err := tx.Types()
+		tcheck(t, err, "types")
+		if len(types) != 1 || types[0] != "User" {
+			t.Fatalf("got %v, expected [User]", types)
+		}
+		return nil
+	})
+	tcheck(t, err, "tx types")
 
-	err = db.Drop("User")
+	err = db.Drop(ctxbg, "User")
 	tcheck(t, err, "drop user")
 
-	types, err = db.Types()
-	tcheck(t, err, "types")
-	if len(types) != 0 {
-		t.Fatalf("got %v, expected 0 types", types)
-	}
+	err = db.Read(ctxbg, func(tx *Tx) error {
+		types, err := tx.Types()
+		tcheck(t, err, "types")
+		if len(types) != 0 {
+			t.Fatalf("got %v, expected 0 types", types)
+		}
+		return nil
+	})
+	tcheck(t, err, "tx types")
 
-	err = db.Drop("User")
+	err = db.Drop(ctxbg, "User")
 	tneed(t, err, ErrAbsent, "drop absent user")
 }
 
@@ -1680,16 +1692,16 @@ func TestDropReferenced(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Drop("Group")
+	err = db.Drop(ctxbg, "Group")
 	tneed(t, err, ErrReference, "drop referenced Group")
 
-	err = db.Drop("User")
+	err = db.Drop(ctxbg, "User")
 	tcheck(t, err, "drop User")
 
-	err = db.Drop("Group")
+	err = db.Drop(ctxbg, "Group")
 	tcheck(t, err, "drop Group")
 
-	_, err = QueryDB[User](db).List()
+	_, err = QueryDB[User](ctxbg, db).List()
 	tneed(t, err, ErrType, "reading removed type")
 }
 
@@ -1813,7 +1825,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 
 	var u0, u1, u2 User
 	now := time.Now().Round(0)
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		u0 = User{
 			Byte:    'a',
 			Int8:    20,
@@ -1892,7 +1904,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 	db, err = topen(t, "testdata/fieldremoveadd.db", nil, Empty{}) // This masks all earlier values.
 	tcheck(t, err, "open")
 
-	err = db.Read(func(tx *Tx) error {
+	err = db.Read(ctxbg, func(tx *Tx) error {
 		check := func(u User) {
 			t.Helper()
 
@@ -1915,7 +1927,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 	db, err = topen(t, "testdata/fieldremoveadd.db", nil, User{}) // The fields are back, but they are masked for old values.
 	tcheck(t, err, "open")
 
-	err = db.Read(func(tx *Tx) error {
+	err = db.Read(ctxbg, func(tx *Tx) error {
 		check := func(u User) {
 			t.Helper()
 
@@ -1960,7 +1972,7 @@ func TestAddNonzero(t *testing.T) {
 	db, err = topen(t, "testdata/addnonzero.db", nil, User{})
 	tcheck(t, err, "open")
 
-	err = db.Insert(&User{})
+	err = db.Insert(ctxbg, &User{})
 	tcheck(t, err, "insert user")
 
 	tclose(t, db)
@@ -1990,7 +2002,7 @@ func TestTransaction(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	tx, err := db.Begin(true)
+	tx, err := db.Begin(ctxbg, true)
 	tcheck(t, err, "begin")
 
 	u := User{}
@@ -2024,7 +2036,7 @@ func TestTransaction(t *testing.T) {
 	err = tx.Rollback()
 	tneed(t, err, errTxClosed, "rollback on closed tx")
 
-	tx, err = db.Begin(false)
+	tx, err = db.Begin(ctxbg, false)
 	tcheck(t, err, "begin")
 
 	err = tx.Get(&u)
@@ -2040,7 +2052,7 @@ func TestTransaction(t *testing.T) {
 	err = tx.Rollback()
 	tneed(t, err, errTxClosed, "rollback on closed botched tx")
 
-	tx, err = db.Begin(false)
+	tx, err = db.Begin(ctxbg, false)
 	tcheck(t, err, "begin")
 	err = tx.Rollback()
 	tcheck(t, err, "rollback")
@@ -2057,10 +2069,10 @@ func TestWriteto(t *testing.T) {
 	defer tclose(t, db)
 
 	u := User{}
-	err = db.Insert(&u)
+	err = db.Insert(ctxbg, &u)
 	tcheck(t, err, "insert")
 
-	err = db.Read(func(tx *Tx) error {
+	err = db.Read(ctxbg, func(tx *Tx) error {
 		f, err := os.Create("testdata/writeto2.db")
 		tcheck(t, err, "create")
 		defer os.Remove(f.Name())
@@ -2074,7 +2086,7 @@ func TestWriteto(t *testing.T) {
 		tcheck(t, err, "open")
 		defer tclose(t, ndb)
 		nu := User{u.ID}
-		err = ndb.Get(&nu)
+		err = ndb.Get(ctxbg, &nu)
 		tcheck(t, err, "get")
 
 		return nil
@@ -2127,23 +2139,23 @@ func TestBinarymarshal(t *testing.T) {
 	defer tclose(t, db)
 
 	u := User{0, Custom{Int: 123}}
-	err = db.Insert(&u)
+	err = db.Insert(ctxbg, &u)
 	tcheck(t, err, "insert")
 
-	err = db.Get(&u)
+	err = db.Get(ctxbg, &u)
 	tcheck(t, err, "get")
 
 	u.Custom.Int += 1
-	err = db.Update(&u)
+	err = db.Update(ctxbg, &u)
 	tcheck(t, err, "update")
 
-	users, err := QueryDB[User](db).List()
+	users, err := QueryDB[User](ctxbg, db).List()
 	tcompare(t, err, users, []User{u}, "query list")
 
-	n, err := QueryDB[User](db).FilterEqual("Custom", u.Custom).Count()
+	n, err := QueryDB[User](ctxbg, db).FilterEqual("Custom", u.Custom).Count()
 	tcompare(t, err, n, 1, "filterequal count")
 
-	err = QueryDB[User](db).FilterGreater("Custom", u.Custom).Err()
+	err = QueryDB[User](ctxbg, db).FilterGreater("Custom", u.Custom).Err()
 	tneed(t, err, ErrParam, "bad filter compare on binarymarshal")
 }
 
@@ -2172,10 +2184,10 @@ func TestChangePtr(t *testing.T) {
 	u0 := User{0, 10, "test", time.Now().Round(0), bm{"test"}}
 	u1 := User{}
 
-	err = db.Insert(&u0, &u1)
+	err = db.Insert(ctxbg, &u0, &u1)
 	tcheck(t, err, "insert")
 
-	err = db.Get(&u0, &u1)
+	err = db.Get(ctxbg, &u0, &u1)
 	tcheck(t, err, "get")
 
 	tclose(t, db)
@@ -2185,9 +2197,9 @@ func TestChangePtr(t *testing.T) {
 
 	x0 := User2{ID: u0.ID}
 	x1 := User2{ID: u1.ID}
-	err = db.Get(&x0)
+	err = db.Get(ctxbg, &x0)
 	tcheck(t, err, "get")
-	err = db.Get(&x1)
+	err = db.Get(ctxbg, &x1)
 	tcheck(t, err, "get")
 
 	if x0.Age == nil || x0.Name == nil || x0.Created == nil || x0.BM == nil {
@@ -2207,7 +2219,7 @@ func TestChangePtr(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	err = db.Get(&u0, &u1)
+	err = db.Get(ctxbg, &u0, &u1)
 	tcheck(t, err, "get")
 
 	if u0.Age != *x0.Age || u0.Name != *x0.Name || !u0.Created.Equal(*x0.Created) || u0.BM != *x0.BM {
@@ -2239,25 +2251,25 @@ func TestHintAppend(t *testing.T) {
 	tneed(t, err, ErrType, "bad type")
 
 	u0 := User{}
-	err = db.Insert(&u0)
+	err = db.Insert(ctxbg, &u0)
 	tcheck(t, err, "insert after hintappend")
 
 	x0 := User{ID: u0.ID}
-	err = db.Get(&x0)
+	err = db.Get(ctxbg, &x0)
 	tcompare(t, err, x0, u0, "get")
 
 	err = db.HintAppend(false, User{})
 	tcheck(t, err, "hintappend false")
 
 	u1 := User{}
-	err = db.Insert(&u1)
+	err = db.Insert(ctxbg, &u1)
 	tcheck(t, err, "insert after hintappend false")
 
-	err = db.Get(&x0)
+	err = db.Get(ctxbg, &x0)
 	tcompare(t, err, x0, u0, "get")
 
 	x1 := User{ID: u1.ID}
-	err = db.Get(&x1)
+	err = db.Get(ctxbg, &x1)
 	tcheck(t, err, "get")
 	tcompare(t, err, x1, u1, "get")
 }
@@ -2289,13 +2301,13 @@ func TestRegisterRef(t *testing.T) {
 	tcheck(t, err, "open")
 
 	var g0, g1 Group
-	err = db.Insert(&g0, &g1)
+	err = db.Insert(ctxbg, &g0, &g1)
 	tcheck(t, err, "insert")
 
 	u0 := User{GroupID: g0.ID}
 	u1 := User{GroupID: g0.ID}
 	u2 := User{GroupID: g1.ID}
-	err = db.Insert(&u0, &u1, &u2)
+	err = db.Insert(ctxbg, &u0, &u1, &u2)
 	tcheck(t, err, "insert user")
 
 	tclose(t, db)
@@ -2376,21 +2388,21 @@ func TestChangeType(t *testing.T) {
 	db, err := topen(t, path, nil, T0{})
 	tcheck(t, err, "open")
 	v0 := T0{Name: "test", S: "s"}
-	err = db.Insert(&v0)
+	err = db.Insert(ctxbg, &v0)
 	tcheck(t, err, "insert")
 	tclose(t, db)
 
 	db, err = topen(t, path, nil, T1{})
 	tcheck(t, err, "open with renamed field of different type")
 	v1 := T1{ID: v0.ID, S: "s"}
-	err = db.Get(&v1)
+	err = db.Get(ctxbg, &v1)
 	tcompare(t, err, v1, T1{v0.ID, nil, "s"}, "get")
 	tclose(t, db)
 
 	db, err = topen(t, path, nil, T2{})
 	tcheck(t, err, "open with renamed field of different type")
 	v2 := T2{ID: v0.ID, S: "s"}
-	err = db.Get(&v2)
+	err = db.Get(ctxbg, &v2)
 	tcompare(t, err, v2, T2{v0.ID, "", "s"}, "get")
 	tclose(t, db)
 }
@@ -2462,14 +2474,14 @@ func TestChangeTypeListMap(t *testing.T) {
 			},
 		},
 	}
-	err = db.Insert(&v0)
+	err = db.Insert(ctxbg, &v0)
 	tcheck(t, err, "insert")
 	tclose(t, db)
 
 	db, err = topen(t, path, nil, T1{})
 	tcheck(t, err, "open with renamed field of different type")
 	v1 := T1{ID: v0.ID}
-	err = db.Get(&v1)
+	err = db.Get(ctxbg, &v1)
 	tcompare(t, err, v1.List, v0.List, "get")
 	tcompare(t, err, v1.List2, v0.List2, "get")
 	tcompare(t, err, v1.Map, v0.Map, "get")
@@ -2504,21 +2516,21 @@ func TestChangeTypeSub(t *testing.T) {
 	db, err := topen(t, path, nil, T0{})
 	tcheck(t, err, "open")
 	v0 := T0{0, Sub1{"test"}}
-	err = db.Insert(&v0)
+	err = db.Insert(ctxbg, &v0)
 	tcheck(t, err, "insert")
 	tclose(t, db)
 
 	db, err = topen(t, path, nil, T1{})
 	tcheck(t, err, "open with renamed field of different type")
 	v1 := T1{v0.ID, Sub2{[]string{"x"}}}
-	err = db.Get(&v1)
+	err = db.Get(ctxbg, &v1)
 	tcompare(t, err, v1, T1{v0.ID, Sub2{nil}}, "get")
 	tclose(t, db)
 
 	db, err = topen(t, path, nil, T2{})
 	tcheck(t, err, "open with renamed field of different type")
 	v2 := T2{v0.ID, Sub1{"x"}}
-	err = db.Get(&v2)
+	err = db.Get(ctxbg, &v2)
 	tcompare(t, err, v2, T2{v0.ID, Sub1{""}}, "get")
 	tclose(t, db)
 }
@@ -2545,12 +2557,12 @@ func TestChangeRef(t *testing.T) {
 	db, err := topen(t, path, nil, T{}, Other{}, Other1{})
 	tcheck(t, err, "open")
 	o0 := Other{}
-	err = db.Insert(&o0)
+	err = db.Insert(ctxbg, &o0)
 	tcheck(t, err, "insert")
-	err = db.Insert(&Other1{})
+	err = db.Insert(ctxbg, &Other1{})
 	tcheck(t, err, "insert")
 	v0 := T{OtherID: o0.ID}
-	err = db.Insert(&v0)
+	err = db.Insert(ctxbg, &v0)
 	tcheck(t, err, "insert")
 	tclose(t, db)
 
@@ -2577,7 +2589,7 @@ func TestAddRef(t *testing.T) {
 	db, err := topen(t, path, nil, T{}, Other{})
 	tcheck(t, err, "open")
 	t0 := T{ID: 1, OtherID: 2} // Not a ref yet, so not actually dangling yet.
-	err = db.Insert(&t0)
+	err = db.Insert(ctxbg, &t0)
 	tcheck(t, err, "insert")
 	tclose(t, db)
 
@@ -2588,7 +2600,7 @@ func TestAddRef(t *testing.T) {
 	// Reopen with original types, and fix the referential problem.
 	db, err = topen(t, path, nil, T{}, Other{})
 	tcheck(t, err, "open")
-	err = db.Insert(&Other{ID: 2}) // t0 is no longer dangling.
+	err = db.Insert(ctxbg, &Other{ID: 2}) // t0 is no longer dangling.
 	tcheck(t, err, "insert")
 	tclose(t, db)
 
@@ -2618,7 +2630,7 @@ func TestBotched(t *testing.T) {
 
 	db, err := topen(t, path, nil, T{})
 	tcheck(t, err, "open")
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		err = tx.Insert(&T{A: "a0", B: "b"})
 		tcheck(t, err, "insert")
 
@@ -2646,7 +2658,7 @@ func TestBotched(t *testing.T) {
 	})
 	tneed(t, err, ErrTxBotched, "write tx")
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		t0 := T{A: "a0", B: "b0"}
 		err = tx.Insert(&t0)
 		tcheck(t, err, "insert")
@@ -2685,7 +2697,7 @@ func TestInSlice(t *testing.T) {
 	db, err := topen(t, path, nil, Message{})
 	tcheck(t, err, "open")
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		var stats, delta Stats
 		stats = tx.Stats()
 
@@ -2778,7 +2790,7 @@ func TestInSliceNoIndex(t *testing.T) {
 	db, err := topen(t, path, nil, T{})
 	tcheck(t, err, "open")
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		var stats, delta Stats
 		stats = tx.Stats()
 
@@ -2844,7 +2856,7 @@ func TestInSliceBad(t *testing.T) {
 	tcheck(t, err, "open")
 
 	q := func() *Query[T] {
-		return QueryDB[T](db)
+		return QueryDB[T](ctxbg, db)
 	}
 
 	err = q().FilterIn("ID", int64(1)).Err()
@@ -2883,16 +2895,16 @@ func TestSliceIndexChange(t *testing.T) {
 	t0 := T0{0, []string{"a", "b"}}
 	t1 := T0{0, []string{}}
 	t2 := T0{0, []string{"b", "c"}}
-	err = db.Insert(&t0, &t1, &t2)
+	err = db.Insert(ctxbg, &t0, &t1, &t2)
 	tcheck(t, err, "insert")
 
-	l, err := QueryDB[T0](db).FilterIn("Tags", "a").List()
+	l, err := QueryDB[T0](ctxbg, db).FilterIn("Tags", "a").List()
 	tcompare(t, err, l, []T0{t0}, "list")
 
-	l, err = QueryDB[T0](db).FilterIn("Tags", "").List()
+	l, err = QueryDB[T0](ctxbg, db).FilterIn("Tags", "").List()
 	tcompare(t, err, l, []T0{}, "list")
 
-	l, err = QueryDB[T0](db).FilterIn("Tags", "b").SortAsc("ID").List()
+	l, err = QueryDB[T0](ctxbg, db).FilterIn("Tags", "b").SortAsc("ID").List()
 	tcompare(t, err, l, []T0{t0, t2}, "list")
 
 	tclose(t, db)
@@ -2901,14 +2913,14 @@ func TestSliceIndexChange(t *testing.T) {
 	db1, err := topen(t, path, nil, T1{})
 	tcheck(t, err, "open")
 	xt0 := T1(t0)
-	l1, err := QueryDB[T1](db1).FilterIn("Tags", "a").List()
+	l1, err := QueryDB[T1](ctxbg, db1).FilterIn("Tags", "a").List()
 	tcompare(t, err, l1, []T1{xt0}, "list")
 	tclose(t, db1)
 
 	// And open again without index.
 	db, err = topen(t, path, nil, T0{})
 	tcheck(t, err, "open")
-	l, err = QueryDB[T0](db).FilterIn("Tags", "a").List()
+	l, err = QueryDB[T0](ctxbg, db).FilterIn("Tags", "a").List()
 	tcompare(t, err, l, []T0{t0}, "list")
 	tclose(t, db)
 }
@@ -2942,15 +2954,15 @@ func TestCyclic(t *testing.T) {
 		},
 		map[int]CyclicB{1: {Text: "f"}},
 	}
-	err = db.Insert(&a0, &a1)
+	err = db.Insert(ctxbg, &a0, &a1)
 	tcheck(t, err, "insert")
 
 	x0 := CyclicA{ID: a0.ID}
-	err = db.Get(&x0)
+	err = db.Get(ctxbg, &x0)
 	tcompare(t, err, x0, a0, "get a0")
 
 	x1 := CyclicA{ID: a1.ID}
-	err = db.Get(&x1)
+	err = db.Get(ctxbg, &x1)
 	tcompare(t, err, x1, a1, "get a1")
 
 	tclose(t, db)
@@ -2978,15 +2990,15 @@ func TestCyclicMore(t *testing.T) {
 		Map: map[string]*T{"x": {ID: 3, Y: Y{Text: "y"}}},
 		Y:   Y{Text: "z"},
 	}
-	err = db.Insert(&t0, &t1)
+	err = db.Insert(ctxbg, &t0, &t1)
 	tcheck(t, err, "insert")
 
 	x0 := T{ID: t0.ID}
-	err = db.Get(&x0)
+	err = db.Get(ctxbg, &x0)
 	tcompare(t, err, x0, t0, "get t0")
 
 	x1 := T{ID: t1.ID}
-	err = db.Get(&x1)
+	err = db.Get(ctxbg, &x1)
 	tcompare(t, err, x1, t1, "get t1")
 
 	tclose(t, db)
@@ -3013,7 +3025,7 @@ func TestCyclicChange(t *testing.T) {
 	t0b := T0{
 		T: &T0{ID: 999},
 	}
-	err = db0.Insert(&t0a, &t0b)
+	err = db0.Insert(ctxbg, &t0a, &t0b)
 	tcheck(t, err, "insert")
 
 	tclose(t, db0)
@@ -3023,7 +3035,7 @@ func TestCyclicChange(t *testing.T) {
 
 	t1b := T1{ID: t0b.ID, T: &T1{ID: 999}}
 	x1b := T1{ID: t0b.ID}
-	err = db1.Get(&x1b)
+	err = db1.Get(ctxbg, &x1b)
 	tcompare(t, err, x1b, t1b, "get t1b")
 
 	tclose(t, db1)
@@ -3096,7 +3108,7 @@ func TestPropagateChangeNonzero(t *testing.T) {
 			},
 		},
 	}
-	err = db.Insert(&ca0)
+	err = db.Insert(ctxbg, &ca0)
 	tcheck(t, err, "insert")
 
 	tclose(t, db)
@@ -3160,7 +3172,7 @@ func TestPropagateChangePtrNonzero(t *testing.T) {
 		},
 	}
 	ca1 := CyclicPtrA0{}
-	err = db.Insert(&ca1, &ca0) // ca1 first, to test that nil values are not descended into.
+	err = db.Insert(ctxbg, &ca1, &ca0) // ca1 first, to test that nil values are not descended into.
 	tcheck(t, err, "insert")
 
 	tclose(t, db)
@@ -3182,11 +3194,11 @@ func TestEmbedSelf(t *testing.T) {
 	tcheck(t, err, "open")
 
 	v := X{S: "s", X: &X{S: "y"}}
-	err = db.Insert(&v)
+	err = db.Insert(ctxbg, &v)
 	tcheck(t, err, "insert")
 
 	x := X{ID: v.ID}
-	err = db.Get(&x)
+	err = db.Get(ctxbg, &x)
 	tcompare(t, err, x, v, "get v")
 
 	tclose(t, db)
@@ -3194,7 +3206,7 @@ func TestEmbedSelf(t *testing.T) {
 	db, err = topen(t, path, nil, X{})
 	tcheck(t, err, "open db")
 	x = X{ID: v.ID}
-	err = db.Get(&x)
+	err = db.Get(ctxbg, &x)
 	tcompare(t, err, x, v, "compare")
 
 	tclose(t, db)
@@ -3261,11 +3273,11 @@ func TestOndiskV2B(t *testing.T) {
 	tcompare(t, nil, db.typeNames["Cyclic"].Current.OndiskVersion, uint32(ondiskVersion2), "checking for ondisk version")
 
 	c0 := Cyclic{Cyclic: &Cyclic{ID: 2}, X: &X{V: 3}}
-	err = db.Insert(&c0)
+	err = db.Insert(ctxbg, &c0)
 	tcheck(t, err, "insert")
 
 	x0 := Cyclic{ID: c0.ID}
-	err = db.Get(&x0)
+	err = db.Get(ctxbg, &x0)
 	tcompare(t, err, x0, c0, "get x0")
 
 	tclose(t, db)
@@ -3276,7 +3288,7 @@ func TestOndiskV2B(t *testing.T) {
 	tcompare(t, nil, len(db.typeNames["Cyclic"].Versions), 2, "check typeversions after swapping field order")
 
 	s0 := CyclicSwapped{ID: c0.ID}
-	err = db.Get(&s0)
+	err = db.Get(ctxbg, &s0)
 	tcompare(t, err, s0.X.V, c0.X.V, "check x.v")
 	tcompare(t, err, s0.Cyclic.ID, c0.Cyclic.ID, "check cyclic.id")
 
@@ -3308,11 +3320,11 @@ func BenchmarkGet(b *testing.B) {
 	}
 	path := "testdata/benchmarkget.db"
 	os.Remove(path)
-	db, err := Open(path, nil, User{})
+	db, err := Open(ctxbg, path, nil, User{})
 	bcheck(b, err, "open")
 
 	const count = 100 * 1000
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		for i := 0; i < count; i++ {
 			u := User{Name: fmt.Sprintf("user%d", i)}
 			err := tx.Insert(&u)
@@ -3325,7 +3337,7 @@ func BenchmarkGet(b *testing.B) {
 	rnd := mathrand.New(mathrand.NewSource(1))
 	b.ResetTimer()
 
-	err = db.Read(func(tx *Tx) error {
+	err = db.Read(ctxbg, func(tx *Tx) error {
 		for i := 0; i < b.N; i++ {
 			c := rnd.Int63n(count)
 			name := fmt.Sprintf("user%d", c)
@@ -3344,11 +3356,11 @@ func BenchmarkRange(b *testing.B) {
 	}
 	path := "testdata/benchmarkrange.db"
 	os.Remove(path)
-	db, err := Open(path, nil, User{})
+	db, err := Open(ctxbg, path, nil, User{})
 	bcheck(b, err, "open")
 
 	const count = 100 * 1000
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		for i := 0; i < count; i++ {
 			u := User{Name: fmt.Sprintf("user%07d", i)}
 			err := tx.Insert(&u)
@@ -3361,7 +3373,7 @@ func BenchmarkRange(b *testing.B) {
 	rnd := mathrand.New(mathrand.NewSource(1))
 	b.ResetTimer()
 
-	err = db.Read(func(tx *Tx) error {
+	err = db.Read(ctxbg, func(tx *Tx) error {
 		for i := 0; i < b.N; i++ {
 			c := rnd.Int63n(count)
 			name := fmt.Sprintf("user%07d", c)
@@ -3384,12 +3396,12 @@ func BenchmarkInsert(b *testing.B) {
 	}
 	path := "testdata/benchmarkinsert.db"
 	os.Remove(path)
-	db, err := Open(path, nil, User{})
+	db, err := Open(ctxbg, path, nil, User{})
 	bcheck(b, err, "open")
 
 	b.ResetTimer()
 
-	err = db.Write(func(tx *Tx) error {
+	err = db.Write(ctxbg, func(tx *Tx) error {
 		for i := 0; i < b.N; i++ {
 			u := User{Name: fmt.Sprintf("user%d", i)}
 			err := tx.Insert(&u)

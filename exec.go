@@ -94,6 +94,13 @@ func (e *exec[T]) nextKey(write, value bool) ([]byte, T, error) {
 
 	q := e.q
 
+	if q.err == nil {
+		select {
+		case <-q.ctxDone:
+			q.error(q.ctx.Err())
+		default:
+		}
+	}
 	if q.err != nil {
 		return nil, zero, q.err
 	}
