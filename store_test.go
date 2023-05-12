@@ -3283,6 +3283,18 @@ func TestOndiskV2B(t *testing.T) {
 	tclose(t, db)
 }
 
+func TestPtrPtr(t *testing.T) {
+	type X struct {
+		ID          int
+		Unsupported **string
+	}
+
+	path := "testdata/ptrptr.db"
+	os.Remove(path)
+	_, err := topen(t, path, nil, X{})
+	tneed(t, err, ErrType, "open")
+}
+
 func bcheck(b *testing.B, err error, msg string) {
 	if err != nil {
 		b.Fatalf("%s: %s", msg, err)

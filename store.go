@@ -451,6 +451,9 @@ func typeKind(t reflect.Type) (kind, error) {
 	if t.Kind() == reflect.Struct {
 		return kindStruct, nil
 	}
+	if t.Kind() == reflect.Ptr {
+		return kind(0), fmt.Errorf("%w: pointer to pointers not supported: %v", ErrType, t.Elem())
+	}
 	return kind(0), fmt.Errorf("%w: unsupported type %v", ErrType, t)
 }
 
