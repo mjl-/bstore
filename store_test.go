@@ -1980,6 +1980,39 @@ func TestAddNonzero(t *testing.T) {
 	tneed(t, err, ErrZero, "adding nonzero field with records present")
 }
 
+func TestLaterNonzero(t *testing.T) {
+	type User struct {
+		ID   int
+		Name string // Not nonzero.
+	}
+	type User2 struct {
+		ID int `bstore:"typename User"`
+		// No Name field
+	}
+	type User3 struct {
+		ID   int    `bstore:"typename User"`
+		Name string `bstore:"nonzero"` // Added and nonzero, needs nonzero check.
+	}
+
+	const path = "testdata/laternonzero.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
+	tcheck(t, err, "open")
+
+	u := User{Name: "test"} // With nonzero value.
+	err = db.Insert(ctxbg, &u)
+	tcheck(t, err, "insert")
+	tclose(t, db)
+
+	db, err = topen(t, path, nil, User2{}) // Should hide Name field for next open.
+	tcheck(t, err, "open")
+	tclose(t, db)
+
+	// Name field was hidden and should now be the zero value, which isn't allowed.
+	_, err = topen(t, path, nil, User3{})
+	tneed(t, err, ErrZero, "open")
+}
+
 func TestDupField(t *testing.T) {
 	type User struct {
 		ID   int
@@ -3305,6 +3338,36 @@ func TestPtrPtr(t *testing.T) {
 	os.Remove(path)
 	_, err := topen(t, path, nil, X{})
 	tneed(t, err, ErrType, "open")
+}
+
+func TestSchemaCheck(t *testing.T) {
+	type X struct {
+		ID int
+		S  string
+	}
+
+	defer os.Setenv("bstore_schema_check", "")
+
+	path := "testdata/schemacheck.db"
+	os.Remove(path)
+	os.Setenv("bstore_schema_check", "changed")
+	db, err := Open(ctxbg, path, nil, X{})
+	tcheck(t, err, "open with changing schema")
+	tclose(t, db)
+
+	os.Setenv("bstore_schema_check", "unchanged")
+	db, err = Open(ctxbg, path, nil, X{})
+	tcheck(t, err, "open without changing schema")
+	tclose(t, db)
+
+	os.Setenv("bstore_schema_check", "changed")
+	_, err = Open(ctxbg, path, nil, X{})
+	tneed(t, err, errSchemaCheck, "open with unexpectedly unchanged schema")
+
+	os.Remove(path)
+	os.Setenv("bstore_schema_check", "unchanged")
+	_, err = Open(ctxbg, path, nil, X{})
+	tneed(t, err, errSchemaCheck, "open with unexpectedly changed schema")
 }
 
 func bcheck(b *testing.B, err error, msg string) {

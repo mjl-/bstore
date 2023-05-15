@@ -124,6 +124,9 @@ func TestExport(t *testing.T) {
 		tcompare(t, err, expFields, fields, "record fields")
 		tcompare(t, err, record["ID"].(int), ids2[0], "record id")
 
+		_, err = tx.Record("User2", "999", &fields)
+		tneed(t, err, ErrAbsent, "Record for unknown key")
+
 		return nil
 	})
 	tcheck(t, err, "tx")

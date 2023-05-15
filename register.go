@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"strconv"
@@ -29,6 +31,8 @@ const (
 	ondiskVersion2 = 2
 )
 
+var errSchemaCheck = errors.New("schema check")
+
 // Register registers the Go types of each value in typeValues for use with the
 // database. Each value must be a struct, not a pointer.
 //
@@ -41,6 +45,10 @@ const (
 //
 // Register can be called multiple times, with different types. But types that
 // reference each other must be registered in the same call to Registers.
+//
+// To help during development, if environment variable "bstore_schema_check" is set
+// to "changed", an error is returned if there is no schema change. If it is set to
+// "unchanged", an error is returned if there was a schema change.
 func (db *DB) Register(ctx context.Context, typeValues ...any) error {
 	// We will drop/create new indices as needed. For changed indices, we drop
 	// and recreate. E.g. if an index becomes a unique index, or if a field in
@@ -51,6 +59,9 @@ func (db *DB) Register(ctx context.Context, typeValues ...any) error {
 	otypeversions := map[string]*typeVersion{} // Replaced typeVersions.
 	ntypeversions := map[string]*typeVersion{} // New typeversions, through new types or updated versions of existing types.
 	registered := map[string]*storeType{}      // Registered in this call.
+
+	checkSchemaChanged := os.Getenv("bstore_schema_check") == "changed"
+	checkSchemaUnchanged := os.Getenv("bstore_schema_check") == "unchanged"
 
 	return db.Write(ctx, func(tx *Tx) error {
 		for _, t := range typeValues {
@@ -129,6 +140,11 @@ func (db *DB) Register(ctx context.Context, typeValues ...any) error {
 
 			// Decide if we need to add a new typeVersion to the database. I.e. a new type schema.
 			if st.Current == nil || !st.Current.typeEqual(*tv) {
+				if checkSchemaUnchanged {
+					return fmt.Errorf("%w: schema changed but bstore_schema_check=unchanged is set (type %v)", errSchemaCheck, st.Name)
+				}
+				checkSchemaChanged = false // After registering types, we check that it is false.
+
 				tv.Version = 1
 				if st.Current != nil {
 					tv.Version = st.Current.Version + 1
@@ -211,6 +227,10 @@ func (db *DB) Register(ctx context.Context, typeValues ...any) error {
 			db.typeNames[st.Name] = st
 			db.types[st.Type] = st
 			registered[st.Name] = &st
+		}
+
+		if checkSchemaChanged {
+			return fmt.Errorf("%w: schema did not change while bstore_schema_check=changed is set", errSchemaCheck)
 		}
 
 		// Check that referenced types exist, and make links in the referenced types.

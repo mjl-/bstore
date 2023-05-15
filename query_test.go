@@ -564,6 +564,11 @@ func TestQueryRangeIndex(t *testing.T) {
 	tcompare(t, err, delta.LastOrdered, true, "ordered plan")
 	tcompare(t, err, delta.LastAsc, true, "ascending")
 
+	x0, err = q().FilterNonzero(Msg{ID: m0.ID}).Get()
+	tcompare(t, err, x0, m0, "get m0 by primary key through FilterNonzero")
+	updateStats()
+	tcompare(t, err, delta.PlanPK, uint(1), "plan pk")
+
 	l, err = q().FilterEqual("MailboxID", mb0.ID).SortDesc("Received").List()
 	tcompare(t, err, l, []Msg{m1, m0}, "list messages by received desc")
 	updateStats()

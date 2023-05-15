@@ -258,6 +258,9 @@ type Options struct {
 // The context is used for opening and initializing the database, not for further
 // operations. If the context is canceled while waiting on the database file lock,
 // the operation is not aborted other than when the deadline/timeout is reached.
+//
+// See function Register for checks for changed/unchanged schema during open
+// based on environment variable "bstore_schema_check".
 func Open(ctx context.Context, path string, opts *Options, typeValues ...any) (*DB, error) {
 	var bopts *bolt.Options
 	if opts != nil && opts.Timeout > 0 {
