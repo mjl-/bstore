@@ -267,6 +267,13 @@ func TestQuery(t *testing.T) {
 	})
 	tcompare(t, err, n, 3, "foreach")
 
+	n = 0
+	err = q().ForEach(func(v User) error {
+		n++
+		return StopForEach
+	})
+	tcompare(t, err, n, 1, "foreach with stop")
+
 	xerr := errors.New("error")
 	err = q().ForEach(func(v User) error {
 		return xerr

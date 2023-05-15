@@ -2,6 +2,7 @@ package bstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 )
@@ -177,7 +178,7 @@ func QueryDB[T any](ctx context.Context, db *DB) *Query[T] {
 	return q
 }
 
-// Query returns a new Query that operates on type T using transaction tx.
+// QueryTx returns a new Query that operates on type T using transaction tx.
 // The context of the transaction is used for the query.
 func QueryTx[T any](tx *Tx) *Query[T] {
 	// note: Since we are in a transaction, we already hold an rlock on the
@@ -400,7 +401,10 @@ func (q *Query[T]) foreachKey(write, value bool, fn func(bk []byte, v T) error) 
 			return nil
 		} else if err != nil {
 			return err
-		} else if err := fn(bk, v); err != nil {
+		} else if err := fn(bk, v); err == StopForEach {
+			q.error(ErrFinished)
+			return nil
+		} else if err != nil {
 			q.error(err)
 			return err
 		}
@@ -1188,7 +1192,13 @@ func (q *Query[T]) Exists() (exists bool, rerr error) {
 	return err == nil, err
 }
 
+// StopForEach is an error value that, if returned by the function passed to
+// Query.ForEach, stops further iterations.
+var StopForEach error = errors.New("stop foreach")
+
 // ForEach calls fn on each selected record.
+// If fn returns StopForEach, ForEach stops iterating, so no longer calls fn,
+// and returns nil.
 func (q *Query[T]) ForEach(fn func(value T) error) (rerr error) {
 	defer q.finish(&rerr)
 	q.checkNotNext()
