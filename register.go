@@ -15,6 +15,10 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+// todo: implement changing PK type, eg to wider int. requires rewriting all values, and removing old typeVersions.
+// todo: allow schema change between []byte and string?
+// todo: allow more schema changes, eg int to string, bool to int or string, int to bool, perhaps even string to int/bool. and between structs and maps. would require rewriting the records.
+
 const (
 	// First version.
 	ondiskVersion1 = 1

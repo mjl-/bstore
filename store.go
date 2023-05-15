@@ -15,6 +15,15 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+/*
+- todo: should we add a way for ad-hoc data manipulation? e.g. with sql-like queries, e.g. update, delete, insert; and export results of queries to csv.
+- todo: should we have a function that returns records in a map? eg Map() that is like List() but maps a key to T (too bad we cannot have a type for the key!).
+- todo: better error messages (ordering of description & error; mention typename, fields (path), field types and offending value & type more often)
+- todo: support arrays (fixed sized)
+- todo: should we add types for dates and numerics?
+- todo: struct tag for enums? where we check if the values match.
+*/
+
 var (
 	ErrAbsent       = errors.New("absent") // If a function can return an ErrAbsent, it can be compared directly, without errors.Is.
 	ErrZero         = errors.New("must be nonzero")

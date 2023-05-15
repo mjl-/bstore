@@ -10,6 +10,8 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+// todo optimize: do not fetch full record if we can apply the filters with just the values we glean from the index key.
+
 // exec represents the execution of a query plan.
 type exec[T any] struct {
 	q    *Query[T]

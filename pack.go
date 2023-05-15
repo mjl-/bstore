@@ -153,6 +153,7 @@ func (tv typeVersion) pack(p *packer, rv reflect.Value) {
 			}
 			p.Field(false)
 			// Pretend to pack to get the nonzero checks.
+			// todo: we should be able to do nonzero-check without pretending to pack.
 			if nrv.IsValid() && (nrv.Kind() != reflect.Ptr || !nrv.IsNil()) {
 				f.Type.pack(&packer{b: &bytes.Buffer{}}, nrv)
 			}

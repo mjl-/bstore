@@ -330,6 +330,7 @@ func (tx *Tx) Insert(values ...any) error {
 			return err
 		}
 
+		// todo optimize: should track per field whether it (or a child) has a default value, and only applyDefault if so.
 		if err := st.Current.applyDefault(rv); err != nil {
 			return err
 		}

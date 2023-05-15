@@ -1127,6 +1127,8 @@ func (q *Query[T]) IDs(idsptr any) (rerr error) {
 	return nil
 }
 
+// todo: should we have an iteration object that we can call Next and NextID on?
+
 // Next fetches the next record, moving the cursor forward.
 //
 // ErrAbsent is returned if no more records match.

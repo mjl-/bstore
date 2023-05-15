@@ -7,6 +7,12 @@ import (
 	"sort"
 )
 
+// todo: cache query plans? perhaps explicitly through something like a prepared statement. the current plan includes values in keys,start,stop, which would need to be calculated for each execution. should benchmark time spent in planning first.
+// todo optimize: handle multiple sorts with multikey indices if they match
+// todo optimize: combine multiple filter (not)in/equals calls for same field
+// todo optimize: efficiently pack booleans in an index (eg for Message.Flags), and use it to query.
+// todo optimize: do multiple range scans if necessary when we can use an index for an equal check with multiple values.
+
 // Plan represents a plan to execute a query, possibly using a simple/quick
 // bucket "get" or cursor scan (forward/backward) on either the records or an
 // index.
