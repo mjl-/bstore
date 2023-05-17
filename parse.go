@@ -119,7 +119,7 @@ func (st storeType) parse(rv reflect.Value, buf []byte) (rerr error) {
 	tv.parse(p, rv)
 
 	if len(p.buf) != 0 {
-		return fmt.Errorf("%w: leftover data after parsing", ErrStore)
+		return fmt.Errorf("%w: leftover data after parsing (%d, %x %q)", ErrStore, len(p.buf), p.buf, p.buf)
 	}
 
 	return nil
@@ -173,7 +173,8 @@ func (tv typeVersion) parse(p *parser, rv reflect.Value) {
 
 // parse a nonzero fieldType.
 func (ft fieldType) parse(p *parser, rv reflect.Value) {
-	// Because we allow schema changes from ptr to nonptr, rv can be a pointer or direct value regardless of ft.Ptr.
+	// Because we allow schema changes from ptr to nonptr, rv can be a
+	// pointer or direct value regardless of ft.Ptr.
 	if rv.Kind() == reflect.Ptr {
 		nrv := reflect.New(rv.Type().Elem())
 		rv.Set(nrv)

@@ -69,10 +69,23 @@ func (tx *Tx) updateIndices(tv *typeVersion, pk []byte, ov, v reflect.Value) err
 
 	changed := func(idx *index) bool {
 		for _, f := range idx.Fields {
-			rofv := ov.FieldByIndex(f.structField.Index)
-			nofv := v.FieldByIndex(f.structField.Index)
-			// note: checking the interface values is enough, we only allow comparable types as index fields.
-			if rofv.Interface() != nofv.Interface() {
+			ofv := ov.FieldByIndex(f.structField.Index)
+			nfv := v.FieldByIndex(f.structField.Index)
+			if f.Type.Kind == kindSlice {
+				// Index field is a slice type, cannot use direct interface comparison.
+				on := ofv.Len()
+				nn := nfv.Len()
+				if on != nn {
+					return true
+				}
+				for i := 0; i < nn; i++ {
+					// Slice elements are comparable.
+					if ofv.Index(i) != nfv.Index(i) {
+						return true
+					}
+				}
+			} else if ofv.Interface() != nfv.Interface() {
+				// note: checking the interface values is enough, we only allow comparable types as index fields.
 				return true
 			}
 		}

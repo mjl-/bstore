@@ -33,8 +33,7 @@ func (tx *Tx) Types() ([]string, error) {
 
 // prepareType prepares typeName for export/introspection with DB.Keys,
 // DB.Record, DB.Records. It is different in that it does not require a
-// reflect.Type to parse into. It parses to a map, e.g. for export to JSON. The
-// returned typeVersion has no structFields set in its fields.
+// reflect.Type to parse into. It parses to a map, e.g. for export to JSON.
 func (db *DB) prepareType(tx *Tx, typeName string) (map[uint32]*typeVersion, *typeVersion, *bolt.Bucket, []string, error) {
 	if err := tx.ctx.Err(); err != nil {
 		return nil, nil, nil, nil, err
@@ -57,6 +56,7 @@ func (db *DB) prepareType(tx *Tx, typeName string) (map[uint32]*typeVersion, *ty
 		if err != nil {
 			return err
 		}
+
 		versions[ntv.Version] = ntv
 		if tv == nil || ntv.Version > tv.Version {
 			tv = ntv
@@ -261,7 +261,7 @@ func parseMap(versions map[uint32]*typeVersion, bk, bv []byte) (record map[strin
 	}
 
 	if len(p.buf) != 0 {
-		return nil, fmt.Errorf("%w: leftover data after parsing", ErrStore)
+		return nil, fmt.Errorf("%w: leftover data after parsing (%d %x %q)", ErrStore, len(p.buf), p.buf, p.buf)
 	}
 
 	return r, nil

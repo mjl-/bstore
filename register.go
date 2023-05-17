@@ -26,7 +26,7 @@ const (
 	ondiskVersion1 = 1
 
 	// With support for cyclic types, adding typeField.FieldsTypeSeq to
-	// define/reference types. Only used when a type has a field that referencs another
+	// define/reference types. Only used when a type has a field that references another
 	// struct type.
 	ondiskVersion2 = 2
 )
@@ -618,13 +618,13 @@ func parseSchema(bk, bv []byte) (*typeVersion, error) {
 		}
 	}
 
-	// Resolve fieldType.structField, for cyclic types. The type itself always
-	// implicitly has sequence 1.
+	// Resolve fieldType.structFields, for referencing defined types, used for
+	// supporting cyclic types. The type itself always implicitly has sequence 1.
 	seqFields := map[int][]field{1: tv.Fields}
 	origOndiskVersion := tv.OndiskVersion
 	for i := range tv.Fields {
 		if err := tv.resolveStructFields(seqFields, &tv.Fields[i].Type); err != nil {
-			return nil, fmt.Errorf("%w: resolving fields for cyclic data: %v", ErrStore, err)
+			return nil, fmt.Errorf("%w: resolving struct fields for referencing types: %v", ErrStore, err)
 		}
 	}
 	if tv.OndiskVersion != origOndiskVersion {
@@ -656,7 +656,9 @@ func (tv *typeVersion) resolveStructFields(seqFields map[int][]field, ft *fieldT
 			ft.structFields = ft.DefinitionFields
 		}
 		// note: ondiskVersion1 does not have/use this field, so it defaults to 0.
-		if ft.FieldsTypeSeq != 0 {
+		if ft.FieldsTypeSeq == 0 {
+			ft.structFields = ft.DefinitionFields
+		} else {
 			tv.OndiskVersion = ondiskVersion2
 		}
 
@@ -735,7 +737,7 @@ func gatherTypeVersion(t reflect.Type) (*typeVersion, error) {
 	seqFields := map[int][]field{1: tv.Fields}
 	for i := range tv.Fields {
 		if err := tv.resolveStructFields(seqFields, &tv.Fields[i].Type); err != nil {
-			return nil, fmt.Errorf("%w: resolving struct fields for cyclic types: %v", ErrStore, err)
+			return nil, fmt.Errorf("%w: resolving struct fields for referencing types: %v", ErrStore, err)
 		}
 	}
 

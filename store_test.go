@@ -2760,6 +2760,32 @@ func TestInSlice(t *testing.T) {
 		err = tx.Insert(&m4)
 		tcheck(t, err, "insert")
 
+		m5 := Message{Junk: true, DKIMDomains: nil}
+		err = tx.Insert(&m5)
+		tcheck(t, err, "insert")
+
+		m5.DKIMDomains = []string{"x.example"}
+		err = tx.Update(&m5)
+		tcheck(t, err, "update to non-zero list")
+
+		m5.DKIMDomains = []string{}
+		err = tx.Update(&m5)
+		tcheck(t, err, "update to empty list")
+
+		m5.DKIMDomains = nil
+		err = tx.Update(&m5)
+		tcheck(t, err, "update to zero list")
+
+		err = tx.Delete(&m5)
+		tcheck(t, err, "delete with zero list")
+
+		m5 = Message{DKIMDomains: []string{"x.example"}}
+		err = tx.Insert(&m5)
+		tcheck(t, err, "insert")
+
+		err = tx.Delete(&m5)
+		tcheck(t, err, "delete with non-empty list")
+
 		updateStats()
 
 		q := QueryTx[Message](tx)
@@ -2948,6 +2974,14 @@ func TestSliceIndexChange(t *testing.T) {
 	xt0 := T1(t0)
 	l1, err := QueryDB[T1](ctxbg, db1).FilterIn("Tags", "a").List()
 	tcompare(t, err, l1, []T1{xt0}, "list")
+
+	err = db1.Update(ctxbg, &xt0) // Compare slice values.
+	tcheck(t, err, "update")
+
+	xt1 := T1{t1.ID, []string{"x"}}
+	err = db1.Update(ctxbg, &xt1)
+	tcheck(t, err, "update")
+
 	tclose(t, db1)
 
 	// And open again without index.
