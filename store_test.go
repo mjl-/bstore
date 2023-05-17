@@ -3370,6 +3370,44 @@ func TestSchemaCheck(t *testing.T) {
 	tneed(t, err, errSchemaCheck, "open with unexpectedly changed schema")
 }
 
+// Test that we don't accidentially get readonly-mmap data from boltdb into
+// bstore values.
+func TestMmapSafety(t *testing.T) {
+	type T struct {
+		Key   string
+		Value string
+		Buf   []byte
+	}
+
+	const path = "testdata/mmapsafety.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+
+	vexp := T{"key", "value", []byte("test")}
+	err = db.Insert(ctxbg, &vexp)
+	tcheck(t, err, "insert")
+
+	v := T{Key: "key"}
+	err = db.Get(ctxbg, &v)
+	tcompare(t, err, v, vexp, "compare")
+
+	// We delete from the database. Should cause second boltdb root page to
+	// become active. Should not make a difference to our data.
+	err = db.Delete(ctxbg, &v)
+	tcompare(t, err, v, vexp, "compare after delete")
+
+	// Next transaction causes original root page to be active again. This
+	// would hopefully overwrite our original value on disk. And not affect
+	// our in-memory data.
+	err = db.Insert(ctxbg, &T{"xrl", "inyhr", []byte("grfg")})
+	tcompare(t, err, v, vexp, "compare after insert")
+
+	// We should be able to update our buffer, it should not be mmap'ed
+	// readonly, because we copied it when reading the value.
+	v.Buf[0] = 'T'
+}
+
 func bcheck(b *testing.B, err error, msg string) {
 	if err != nil {
 		b.Fatalf("%s: %s", msg, err)
