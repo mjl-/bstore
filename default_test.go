@@ -67,24 +67,25 @@ func TestDefault(t *testing.T) {
 		Map map[string]Struct // Invalid default inside map.
 	}
 
-	os.Remove("testdata/default.db")
+	const path = "testdata/tmp.default.db"
+	os.Remove(path)
 
-	_, err := topen(t, "testdata/default.db", nil, Bad1{})
+	_, err := topen(t, path, nil, Bad1{})
 	tneed(t, err, ErrType, "bad1")
 
-	_, err = topen(t, "testdata/default.db", nil, Bad2{})
+	_, err = topen(t, path, nil, Bad2{})
 	tneed(t, err, ErrType, "bad2")
 
-	_, err = topen(t, "testdata/default.db", nil, Bad3{})
+	_, err = topen(t, path, nil, Bad3{})
 	tneed(t, err, ErrType, "bad3")
 
-	_, err = topen(t, "testdata/default.db", nil, Bad4{})
+	_, err = topen(t, path, nil, Bad4{})
 	tneed(t, err, ErrType, "bad4")
 
-	_, err = topen(t, "testdata/default.db", nil, Bad5{})
+	_, err = topen(t, path, nil, Bad5{})
 	tneed(t, err, ErrType, "bad5")
 
-	db, err := topen(t, "testdata/default.db", nil, User{}, Deep{})
+	db, err := topen(t, path, nil, User{}, Deep{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 

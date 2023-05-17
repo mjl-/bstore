@@ -35,8 +35,9 @@ func TestExport(t *testing.T) {
 		BM      bm
 	}
 
-	os.Remove("testdata/export.db")
-	db, err := topen(t, "testdata/export.db", nil, User1{}, User2{})
+	const path = "testdata/tmp.export.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User1{}, User2{})
 	tcheck(t, err, "open")
 	defer db.Close()
 

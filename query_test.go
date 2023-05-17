@@ -19,8 +19,9 @@ func TestQuery(t *testing.T) {
 		Num  int
 	}
 
-	os.Remove("testdata/query.db")
-	db, err := topen(t, "testdata/query.db", nil, User{})
+	const path = "testdata/tmp.query.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -419,8 +420,9 @@ func TestQueryTime(t *testing.T) {
 		Time time.Time `bstore:"index"`
 	}
 
-	os.Remove("testdata/querytime.db")
-	db, err := topen(t, "testdata/querytime.db", nil, User{})
+	const path = "testdata/tmp.querytime.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -461,8 +463,9 @@ func TestQueryUnique(t *testing.T) {
 		Time time.Time `bstore:"index"`
 	}
 
-	os.Remove("testdata/queryunique.db")
-	db, err := topen(t, "testdata/queryunique.db", nil, User{})
+	const path = "testdata/tmp.queryunique.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -485,8 +488,9 @@ func TestQueryUniqueMulti(t *testing.T) {
 		Role string
 	}
 
-	os.Remove("testdata/queryuniquemulti.db")
-	db, err := topen(t, "testdata/queryuniquemulti.db", nil, User{})
+	const path = "testdata/tmp.queryuniquemulti.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -511,8 +515,9 @@ func TestQueryRangeIndex(t *testing.T) {
 		Name string `bstore:"unique"`
 	}
 
-	os.Remove("testdata/queryrangeindex.db")
-	db, err := topen(t, "testdata/queryrangeindex.db", nil, Msg{}, Mailbox{})
+	const path = "testdata/tmp.queryrangeindex.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, Msg{}, Mailbox{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -630,8 +635,9 @@ func TestNegative(t *testing.T) {
 		Celsius int64 `bstore:"index"`
 	}
 
-	os.Remove("testdata/negative.db")
-	db, err := topen(t, "testdata/negative.db", nil, Stats{})
+	const path = "testdata/tmp.negative.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, Stats{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -654,8 +660,9 @@ func TestQueryLimit(t *testing.T) {
 		ID int
 	}
 
-	os.Remove("testdata/querylimit.db")
-	db, err := topen(t, "testdata/querylimit.db", nil, User{})
+	const path = "testdata/tmp.querylimit.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -674,8 +681,10 @@ func TestQueryNotNext(t *testing.T) {
 		ID int
 	}
 
-	os.Remove("testdata/querylimit.db")
-	db, err := topen(t, "testdata/querylimit.db", nil, User{})
+	const path = "testdata/tmp.querylimit.db"
+
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -702,8 +711,9 @@ func TestQueryIncr(t *testing.T) {
 		Num uint32 `bstore:"index"`
 	}
 
-	os.Remove("testdata/queryincr.db")
-	db, err := topen(t, "testdata/queryincr.db", nil, User{})
+	const path = "testdata/tmp.queryincr.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -732,8 +742,9 @@ func TestQueryCompare(t *testing.T) {
 		Map    map[string]int
 	}
 
-	os.Remove("testdata/querycompare.db")
-	db, err := topen(t, "testdata/querycompare.db", nil, User{})
+	const path = "testdata/tmp.querycompare.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -803,8 +814,9 @@ func TestDeepEqual(t *testing.T) {
 		private string // Changing this field should not cause an update.
 	}
 
-	os.Remove("testdata/deepequal.db")
-	db, err := topen(t, "testdata/deepequal.db", nil, User{})
+	const path = "testdata/tmp.deepequal.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -862,8 +874,9 @@ func TestQueryPtr(t *testing.T) {
 		Time *time.Time `bstore:"default now"`
 	}
 
-	os.Remove("testdata/queryptr.db")
-	db, err := topen(t, "testdata/queryptr.db", nil, User{})
+	const path = "testdata/tmp.queryptr.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -982,7 +995,7 @@ func TestEmbed(t *testing.T) {
 		Flags
 	}
 
-	path := "testdata/embed.db"
+	const path = "testdata/tmp.embed.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, Msg{})
 	tcheck(t, err, "open")
@@ -1032,7 +1045,7 @@ func TestCompareKinds(t *testing.T) {
 		UID       UID
 	}
 
-	path := "testdata/comparekinds.db"
+	const path = "testdata/tmp.comparekinds.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, Msg{})
 	tcheck(t, err, "open")
@@ -1058,7 +1071,7 @@ func TestStringIndex(t *testing.T) {
 		Name string `bstore:"unique"`
 	}
 
-	path := "testdata/stringindex.db"
+	const path = "testdata/tmp.stringindex.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
@@ -1134,7 +1147,7 @@ func TestIDsLimit(t *testing.T) {
 		Other string
 	}
 
-	path := "testdata/idslimit.db"
+	const path = "testdata/tmp.idslimit.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")

@@ -117,7 +117,7 @@ func TestOpenOptions(t *testing.T) {
 		ID int
 	}
 
-	path := "testdata/openoptions.db"
+	const path = "testdata/tmp.openoptions.db"
 	os.Remove(path)
 
 	_, err := Open(ctxbg, path, &Options{MustExist: true}, User{})
@@ -219,8 +219,9 @@ func TestStore(t *testing.T) {
 	err = st.parse(reflect.ValueOf(&User{}).Elem(), ubuf)
 	tcheck(t, err, "parse")
 
-	os.Remove("testdata/test.db")
-	db, err := topen(t, "testdata/test.db", nil, User{})
+	const path = "testdata/tmp.test.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -368,8 +369,9 @@ func TestBoolptr(t *testing.T) {
 		ID uint32 `bstore:"typename Boolptr"`
 	}
 
-	os.Remove("testdata/boolptr.db")
-	db, err := topen(t, "testdata/boolptr.db", nil, Boolptr{})
+	const path = "testdata/tmp.boolptr.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, Boolptr{})
 	tcheck(t, err, "open")
 
 	var n, tr, f Boolptr
@@ -405,7 +407,7 @@ func TestBoolptr(t *testing.T) {
 	tcheck(t, err, "write")
 
 	tclose(t, db)
-	db, err = topen(t, "testdata/boolptr.db", nil, Boolptr2{})
+	db, err = topen(t, path, nil, Boolptr2{})
 	tcheck(t, err, "open")
 
 	err = db.Write(ctxbg, func(tx *Tx) error {
@@ -433,7 +435,7 @@ func TestBoolptr(t *testing.T) {
 	tcheck(t, err, "write")
 
 	tclose(t, db)
-	db, err = topen(t, "testdata/boolptr.db", nil, Boolptr{})
+	db, err = topen(t, path, nil, Boolptr{})
 	tcheck(t, err, "open")
 
 	err = db.Write(ctxbg, func(tx *Tx) error {
@@ -464,7 +466,7 @@ func TestBoolptr(t *testing.T) {
 	tcheck(t, err, "write")
 
 	tclose(t, db)
-	db, err = topen(t, "testdata/boolptr.db", nil, Boolptr3{})
+	db, err = topen(t, path, nil, Boolptr3{})
 	tcheck(t, err, "open")
 
 	err = db.Write(ctxbg, func(tx *Tx) error {
@@ -582,7 +584,7 @@ func TestRegister(t *testing.T) {
 		Map map[*int]int
 	}
 
-	path := "testdata/register.db"
+	const path = "testdata/tmp.register.db"
 	os.Remove(path)
 
 	_, err := topen(t, path, nil, "not a struct")
@@ -673,8 +675,9 @@ func TestUnique(t *testing.T) {
 		Name string `bstore:"unique"`
 	}
 
-	os.Remove("testdata/unique.db")
-	db, err := topen(t, "testdata/unique.db", nil, User{})
+	const path = "testdata/tmp.unique.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -730,15 +733,16 @@ func TestReference(t *testing.T) {
 		Name string
 	}
 
-	os.Remove("testdata/reference.db")
+	const path = "testdata/tmp.reference.db"
+	os.Remove(path)
 
-	_, err := topen(t, "testdata/reference.db", nil, User{})
+	_, err := topen(t, path, nil, User{})
 	tneed(t, err, ErrType, "missing reference type")
 
-	_, err = topen(t, "testdata/reference.db", nil, User{}, Group2{})
+	_, err = topen(t, path, nil, User{}, Group2{})
 	tneed(t, err, ErrType, "reference field type mismatch")
 
-	db, err := topen(t, "testdata/reference.db", nil, User{}, Group{})
+	db, err := topen(t, path, nil, User{}, Group{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -787,8 +791,9 @@ func TestCreateIndex(t *testing.T) {
 		Name string `bstore:"unique"`
 	}
 
-	os.Remove("testdata/createindex.db")
-	db, err := topen(t, "testdata/createindex.db", nil, User{})
+	const path = "testdata/tmp.createindex.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 
 	u0 := User{Name: "a"}
@@ -805,11 +810,11 @@ func TestCreateIndex(t *testing.T) {
 	tcheck(t, err, "write")
 	tclose(t, db)
 
-	_, err = topen(t, "testdata/createindex.db", nil, User2{})
+	_, err = topen(t, path, nil, User2{})
 	tneed(t, err, ErrUnique, "open with new unique index with duplicate value")
 
-	os.Remove("testdata/createindex.db")
-	db, err = topen(t, "testdata/createindex.db", nil, User{})
+	os.Remove(path)
+	db, err = topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 
 	u0 = User{Name: "a"}
@@ -821,7 +826,7 @@ func TestCreateIndex(t *testing.T) {
 
 	tclose(t, db)
 
-	db, err = topen(t, "testdata/createindex.db", nil, User2{})
+	db, err = topen(t, path, nil, User2{})
 	tcheck(t, err, "open")
 
 	var ids []int
@@ -868,8 +873,9 @@ func TestTypeVersions(t *testing.T) {
 		ID int
 	}
 
-	os.Remove("testdata/typeversions.db")
-	db, err := topen(t, "testdata/typeversions.db", nil, User{})
+	const path = "testdata/tmp.typeversions.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 
 	reopen := func(v ...any) {
@@ -879,7 +885,7 @@ func TestTypeVersions(t *testing.T) {
 		tclose(t, db)
 
 		// Register a different type. Insert the other type. List the two records with different typeVersions.
-		db, err = topen(t, "testdata/typeversions.db", nil, v...)
+		db, err = topen(t, path, nil, v...)
 		tcheck(t, err, "open")
 	}
 
@@ -962,8 +968,10 @@ func TestInsertSeqdup(t *testing.T) {
 	type User struct {
 		ID int
 	}
-	os.Remove("testdata/insertseqdup.db")
-	db, err := topen(t, "testdata/insertseqdup.db", nil, User{})
+
+	const path = "testdata/tmp.insertseqdup.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -989,9 +997,10 @@ func TestRemoveNoautoSeq(t *testing.T) {
 	type User2 struct {
 		ID int `bstore:"typename User"`
 	}
-	os.Remove("testdata/removenoautoseq.db")
 
-	db, err := topen(t, "testdata/removenoautoseq.db", nil, User{})
+	const path = "testdata/tmp.removenoautoseq.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -1014,7 +1023,7 @@ func TestRemoveNoautoSeq(t *testing.T) {
 	tclose(t, db)
 
 	// Reopening with User2 (without "noauto") should set the sequence past the highest sequence.
-	db, err = topen(t, "testdata/removenoautoseq.db", nil, User2{})
+	db, err = topen(t, path, nil, User2{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -1043,8 +1052,9 @@ func TestPtrZero(t *testing.T) {
 		String *string
 		Sub    *Sub
 	}
-	os.Remove("testdata/ptrzero.db")
-	db, err := topen(t, "testdata/ptrzero.db", nil, User{})
+	const path = "testdata/tmp.ptrzero.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -1105,8 +1115,9 @@ func TestIDTypes(t *testing.T) {
 		ID uint8
 	}
 
-	os.Remove("testdata/idtypes.db")
-	db, err := topen(t, "testdata/idtypes.db", nil, Bytes{}, String{}, Uint8{})
+	const path = "testdata/tmp.idtypes.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, Bytes{}, String{}, Uint8{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -1172,8 +1183,10 @@ func TestChangeIndex(t *testing.T) {
 		Firstname string
 		Lastname  string `bstore:"index Lastname myidx"`
 	}
-	os.Remove("testdata/changeindex.db")
-	db, err := topen(t, "testdata/changeindex.db", nil, User{})
+
+	const path = "testdata/tmp.changeindex.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -1191,7 +1204,7 @@ func TestChangeIndex(t *testing.T) {
 	tcheck(t, err, "write")
 	tclose(t, db)
 
-	db, err = topen(t, "testdata/changeindex.db", nil, User2{})
+	db, err = topen(t, path, nil, User2{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -1210,7 +1223,7 @@ func TestEmptyIndex(t *testing.T) {
 		Time time.Time `bstore:"default now,index"`
 	}
 
-	path := "testdata/emptyindex.db"
+	const path = "testdata/tmp.emptyindex.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
@@ -1265,7 +1278,7 @@ func TestIndexDrop(t *testing.T) {
 		Name string
 	}
 
-	path := "testdata/indexdrop.db"
+	const path = "testdata/tmp.indexdrop.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
@@ -1294,7 +1307,7 @@ func TestIndexWiden(t *testing.T) {
 		Num int32 `bstore:"index"`
 	}
 
-	path := "testdata/indexwiden.db"
+	const path = "testdata/tmp.indexwiden.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
@@ -1325,7 +1338,7 @@ func TestNewNonzero(t *testing.T) {
 		Name string `bstore:"nonzero"`
 	}
 
-	path := "testdata/newnonzero.db"
+	const path = "testdata/tmp.newnonzero.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
@@ -1353,7 +1366,7 @@ func TestNonzero(t *testing.T) {
 		V int `bstore:"nonzero"`
 	}
 
-	path := "testdata/nonzero.db"
+	const path = "testdata/tmp.nonzero.db"
 
 	tnonzero := func(exp error, val any) {
 		t.Helper()
@@ -1409,7 +1422,7 @@ func TestRefIndexConflict(t *testing.T) {
 		ID int
 	}
 
-	path := "testdata/refindexconflict.db"
+	const path = "testdata/tmp.refindexconflict.db"
 	os.Remove(path)
 	_, err := topen(t, path, nil, User{}, Group{})
 	tneed(t, err, ErrType, "open")
@@ -1426,7 +1439,7 @@ func TestIndexRemain(t *testing.T) {
 		Name string `bstore:"unique"`
 	}
 
-	path := "testdata/indexremain.db"
+	const path = "testdata/tmp.indexremain.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{}, Group{})
 	tcheck(t, err, "open")
@@ -1494,22 +1507,23 @@ func TestChangeNonzero(t *testing.T) {
 	testValue := func(good User, bad User2) {
 		t.Helper()
 
-		os.Remove("testdata/changenonzero.db")
-		db, err := topen(t, "testdata/changenonzero.db", nil, User{})
+		const path = "testdata/tmp.changenonzero.db"
+		os.Remove(path)
+		db, err := topen(t, path, nil, User{})
 		tcheck(t, err, "open")
 
 		err = db.Insert(ctxbg, &good)
 		tcheck(t, err, "insert good user")
 
 		tclose(t, db)
-		db, err = topen(t, "testdata/changenonzero.db", nil, User2{})
+		db, err = topen(t, path, nil, User2{})
 		tcheck(t, err, "reopen without zero values") // Should succeed, no zero values.
 
 		err = db.Insert(ctxbg, &bad)
 		tneed(t, err, ErrZero, "inserting zero value")
 
 		tclose(t, db)
-		db, err = topen(t, "testdata/changenonzero.db", nil, User{})
+		db, err = topen(t, path, nil, User{})
 		tcheck(t, err, "reopen with original type")
 
 		bad2 := clone(bad)
@@ -1517,7 +1531,7 @@ func TestChangeNonzero(t *testing.T) {
 		tcheck(t, err, "insert user with zero value")
 
 		tclose(t, db)
-		_, err = topen(t, "testdata/changenonzero.db", nil, User2{})
+		_, err = topen(t, path, nil, User2{})
 		tneed(t, err, ErrZero, "reopen with invalid nonzero values")
 	}
 
@@ -1571,7 +1585,7 @@ func TestChangeNonzeroPtr(t *testing.T) {
 		Field T
 	}
 
-	path := "testdata/changenonzeroptr.db"
+	const path = "testdata/tmp.changenonzeroptr.db"
 
 	tchangenonzeroptr := func(exp error, optr, n any) {
 		os.Remove(path)
@@ -1618,11 +1632,12 @@ func TestNestedIndex(t *testing.T) {
 		Struct Struct2
 	}
 
-	os.Remove("testdata/nestedindex.db")
-	_, err := topen(t, "testdata/nestedindex.db", nil, User{})
+	const path = "testdata/tmp.nestedindex.db"
+	os.Remove(path)
+	_, err := topen(t, path, nil, User{})
 	tneed(t, err, errNestedIndex, "open with nested unique tag")
 
-	_, err = topen(t, "testdata/nestedindex.db", nil, User2{})
+	_, err = topen(t, path, nil, User2{})
 	tneed(t, err, errNestedIndex, "open with nested index tag")
 }
 
@@ -1631,8 +1646,10 @@ func TestDrop(t *testing.T) {
 		ID   int
 		Name string
 	}
-	os.Remove("testdata/drop.db")
-	db, err := topen(t, "testdata/drop.db", nil)
+
+	const path = "testdata/tmp.drop.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil)
 	tcheck(t, err, "open")
 
 	err = db.Read(ctxbg, func(tx *Tx) error {
@@ -1646,7 +1663,7 @@ func TestDrop(t *testing.T) {
 	tcheck(t, err, "tx types")
 
 	tclose(t, db)
-	db, err = topen(t, "testdata/drop.db", nil, User{})
+	db, err = topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 
 	err = db.Read(ctxbg, func(tx *Tx) error {
@@ -1687,8 +1704,9 @@ func TestDropReferenced(t *testing.T) {
 		Name string
 	}
 
-	os.Remove("testdata/dropreferenced.db")
-	db, err := topen(t, "testdata/dropreferenced.db", nil, User{}, Group{})
+	const path = "testdata/tmp.dropreferenced.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{}, Group{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -1711,7 +1729,7 @@ func TestCompatible(t *testing.T) {
 		Other T
 	}
 
-	path := "testdata/compatible.db"
+	const path = "testdata/tmp.compatible.db"
 
 	topen := func(base any, expErr error, values ...any) {
 		t.Helper()
@@ -1819,8 +1837,9 @@ func TestFieldRemoveAdd(t *testing.T) {
 		ID int `bstore:"typename User"`
 	}
 
-	os.Remove("testdata/fieldremoveadd.db")
-	db, err := topen(t, "testdata/fieldremoveadd.db", nil, User{})
+	const path = "testdata/tmp.fieldremoveadd.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 
 	var u0, u1, u2 User
@@ -1901,7 +1920,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 	tcheck(t, err, "write")
 
 	tclose(t, db)
-	db, err = topen(t, "testdata/fieldremoveadd.db", nil, Empty{}) // This masks all earlier values.
+	db, err = topen(t, path, nil, Empty{}) // This masks all earlier values.
 	tcheck(t, err, "open")
 
 	err = db.Read(ctxbg, func(tx *Tx) error {
@@ -1924,7 +1943,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 	tcheck(t, err, "read")
 
 	tclose(t, db)
-	db, err = topen(t, "testdata/fieldremoveadd.db", nil, User{}) // The fields are back, but they are masked for old values.
+	db, err = topen(t, path, nil, User{}) // The fields are back, but they are masked for old values.
 	tcheck(t, err, "open")
 
 	err = db.Read(ctxbg, func(tx *Tx) error {
@@ -1959,24 +1978,25 @@ func TestAddNonzero(t *testing.T) {
 		Name string `bstore:"nonzero"`
 	}
 
-	os.Remove("testdata/addnonzero.db")
-	db, err := topen(t, "testdata/addnonzero.db", nil, User{})
+	const path = "testdata/tmp.addnonzero.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 
 	tclose(t, db)
-	db, err = topen(t, "testdata/addnonzero.db", nil, User2{}) // No records yet, all good.
+	db, err = topen(t, path, nil, User2{}) // No records yet, all good.
 	tcheck(t, err, "open")
 
 	tclose(t, db)
-	os.Remove("testdata/addnonzero.db")
-	db, err = topen(t, "testdata/addnonzero.db", nil, User{})
+	os.Remove(path)
+	db, err = topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 
 	err = db.Insert(ctxbg, &User{})
 	tcheck(t, err, "insert user")
 
 	tclose(t, db)
-	_, err = topen(t, "testdata/addnonzero.db", nil, User2{})
+	_, err = topen(t, path, nil, User2{})
 	tneed(t, err, ErrZero, "adding nonzero field with records present")
 }
 
@@ -1994,7 +2014,7 @@ func TestLaterNonzero(t *testing.T) {
 		Name string `bstore:"nonzero"` // Added and nonzero, needs nonzero check.
 	}
 
-	const path = "testdata/laternonzero.db"
+	const path = "testdata/tmp.laternonzero.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
@@ -2019,8 +2039,9 @@ func TestDupField(t *testing.T) {
 		Name string `bstore:"name ID"`
 	}
 
-	os.Remove("testdata/dupfield.db")
-	_, err := topen(t, "testdata/dupfield.db", nil, User{})
+	const path = "testdata/tmp.dupfield.db"
+	os.Remove(path)
+	_, err := topen(t, path, nil, User{})
 	tneed(t, err, ErrType, "open type with duplicate field name")
 }
 
@@ -2030,8 +2051,9 @@ func TestTransaction(t *testing.T) {
 		Field string
 	}
 
-	os.Remove("testdata/transaction.db")
-	db, err := topen(t, "testdata/transaction.db", nil, User{})
+	const path = "testdata/tmp.transaction.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -2096,8 +2118,9 @@ func TestWriteto(t *testing.T) {
 		ID int
 	}
 
-	os.Remove("testdata/writeto.db")
-	db, err := topen(t, "testdata/writeto.db", nil, User{})
+	const path = "testdata/tmp.writeto.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -2106,7 +2129,8 @@ func TestWriteto(t *testing.T) {
 	tcheck(t, err, "insert")
 
 	err = db.Read(ctxbg, func(tx *Tx) error {
-		f, err := os.Create("testdata/writeto2.db")
+		const path2 = "testdata/tmp.writeto2.db"
+		f, err := os.Create(path2)
 		tcheck(t, err, "create")
 		defer os.Remove(f.Name())
 		defer f.Close()
@@ -2115,7 +2139,7 @@ func TestWriteto(t *testing.T) {
 		err = f.Sync()
 		tcheck(t, err, "sync")
 
-		ndb, err := topen(t, "testdata/writeto2.db", nil, User{})
+		ndb, err := topen(t, path2, nil, User{})
 		tcheck(t, err, "open")
 		defer tclose(t, ndb)
 		nu := User{u.ID}
@@ -2160,14 +2184,15 @@ func TestBinarymarshal(t *testing.T) {
 		Custom Custom // Stored with MarshalBinary
 	}
 
-	os.Remove("testdata/binarymarshal.db")
-	_, err := topen(t, "testdata/binarymarshal.db", nil, BadPK{})
+	const path = "testdata/tmp.binarymarshal.db"
+	os.Remove(path)
+	_, err := topen(t, path, nil, BadPK{})
 	tneed(t, err, ErrType, "bad binarymarshal for pk")
 
-	_, err = topen(t, "testdata/binarymarshal.db", nil, BadIndex{})
+	_, err = topen(t, path, nil, BadIndex{})
 	tneed(t, err, ErrType, "bad binarymarshal for index")
 
-	db, err := topen(t, "testdata/binarymarshal.db", nil, User{})
+	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
@@ -2209,7 +2234,7 @@ func TestChangePtr(t *testing.T) {
 		BM      *bm
 	}
 
-	path := "testdata/changeptr.db"
+	const path = "testdata/tmp.changeptr.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
@@ -2271,7 +2296,7 @@ func TestHintAppend(t *testing.T) {
 		Name string
 	}
 
-	path := "testdata/hintappend.db"
+	const path = "testdata/tmp.hintappend.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
@@ -2328,7 +2353,7 @@ func TestRegisterRef(t *testing.T) {
 		Name string
 	}
 
-	path := "testdata/registerref.db"
+	const path = "testdata/tmp.registerref.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, User{}, Group{})
 	tcheck(t, err, "open")
@@ -2384,7 +2409,7 @@ func TestRefUpdateIndex(t *testing.T) {
 		MessageID string `bstore:"index"`
 	}
 
-	path := "testdata/refupdateindex.db"
+	const path = "testdata/tmp.refupdateindex.db"
 	os.Remove(path)
 
 	db, err := topen(t, path, nil, Message0{}, Mailbox{})
@@ -2415,7 +2440,7 @@ func TestChangeType(t *testing.T) {
 		S    string
 	}
 
-	path := "testdata/changetype.db"
+	const path = "testdata/tmp.changetype.db"
 	os.Remove(path)
 
 	db, err := topen(t, path, nil, T0{})
@@ -2474,7 +2499,7 @@ func TestChangeTypeListMap(t *testing.T) {
 		Map   map[Key]map[Key]Value
 	}
 
-	path := "testdata/changetypelistmap.db"
+	const path = "testdata/tmp.changetypelistmap.db"
 	os.Remove(path)
 
 	db, err := topen(t, path, nil, T0{})
@@ -2543,7 +2568,7 @@ func TestChangeTypeSub(t *testing.T) {
 		Sub Sub1
 	}
 
-	path := "testdata/changetypesub.db"
+	const path = "testdata/tmp.changetypesub.db"
 	os.Remove(path)
 
 	db, err := topen(t, path, nil, T0{})
@@ -2584,7 +2609,7 @@ func TestChangeRef(t *testing.T) {
 		ID int32
 	}
 
-	path := "testdata/changeref.db"
+	const path = "testdata/tmp.changeref.db"
 	os.Remove(path)
 
 	db, err := topen(t, path, nil, T{}, Other{}, Other1{})
@@ -2616,7 +2641,7 @@ func TestAddRef(t *testing.T) {
 		ID int32
 	}
 
-	path := "testdata/addref.db"
+	const path = "testdata/tmp.addref.db"
 	os.Remove(path)
 
 	db, err := topen(t, path, nil, T{}, Other{})
@@ -2658,7 +2683,7 @@ func TestBotched(t *testing.T) {
 		B  string `bstore:"unique"`
 	}
 
-	path := "testdata/botched.db"
+	const path = "testdata/tmp.botched.db"
 	os.Remove(path)
 
 	db, err := topen(t, path, nil, T{})
@@ -2724,7 +2749,7 @@ func TestInSlice(t *testing.T) {
 		DKIMDomains   []string  `bstore:"index DKIMDomains+Received"`
 	}
 
-	path := "testdata/inslice.db"
+	const path = "testdata/tmp.inslice.db"
 	os.Remove(path)
 
 	db, err := topen(t, path, nil, Message{})
@@ -2844,7 +2869,7 @@ func TestInSliceNoIndex(t *testing.T) {
 		IDs []int64
 	}
 
-	path := "testdata/inslicenoindex.db"
+	const path = "testdata/tmp.inslicenoindex.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, T{})
 	tcheck(t, err, "open")
@@ -2895,7 +2920,7 @@ func TestInSliceRef(t *testing.T) {
 		ID int64
 	}
 
-	path := "testdata/insliceref.db"
+	const path = "testdata/tmp.insliceref.db"
 	os.Remove(path)
 	_, err := topen(t, path, nil, T{}, Other{})
 	tneed(t, err, ErrType, "open")
@@ -2909,7 +2934,7 @@ func TestInSliceBad(t *testing.T) {
 		Listptr []*string
 	}
 
-	path := "testdata/inslicerefbad.db"
+	const path = "testdata/tmp.inslicerefbad.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, T{})
 	tcheck(t, err, "open")
@@ -2946,7 +2971,7 @@ func TestSliceIndexChange(t *testing.T) {
 		Tags []string `bstore:"index"`
 	}
 
-	path := "testdata/sliceindexchanged.db"
+	const path = "testdata/tmp.sliceindexchanged.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, T0{})
 	tcheck(t, err, "open")
@@ -3005,7 +3030,7 @@ type CyclicB struct {
 }
 
 func TestCyclic(t *testing.T) {
-	path := "testdata/cyclic.db"
+	const path = "testdata/tmp.cyclic.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, CyclicA{})
 	tcheck(t, err, "open")
@@ -3046,7 +3071,7 @@ func TestCyclicMore(t *testing.T) {
 		Y
 	}
 
-	path := "testdata/cyclicmore.db"
+	const path = "testdata/tmp.cyclicmore.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, T{})
 	tcheck(t, err, "open")
@@ -3083,7 +3108,7 @@ func TestCyclicChange(t *testing.T) {
 		New string
 	}
 
-	path := "testdata/cyclicchange.db"
+	const path = "testdata/tmp.cyclicchange.db"
 	os.Remove(path)
 	db0, err := topen(t, path, nil, T0{})
 	tcheck(t, err, "open")
@@ -3152,7 +3177,7 @@ type CyclicD1 struct {
 
 // Test propagation of need to check for nonzero including cyclic type.
 func TestPropagateChangeNonzero(t *testing.T) {
-	path := "testdata/propagatechangenonzero.db"
+	const path = "testdata/tmp.propagatechangenonzero.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, CyclicA0{})
 	tcheck(t, err, "open")
@@ -3219,7 +3244,7 @@ func ptr[T any](v T) *T {
 
 // Test propagation of need to check for nonzero including cyclic type on pointer types.
 func TestPropagateChangePtrNonzero(t *testing.T) {
-	path := "testdata/propagatechangeptrnonzero.db"
+	const path = "testdata/tmp.propagatechangeptrnonzero.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, CyclicPtrA0{})
 	tcheck(t, err, "open")
@@ -3255,7 +3280,7 @@ func TestEmbedSelf(t *testing.T) {
 		*X
 	}
 
-	path := "testdata/embedself.db"
+	const path = "testdata/tmp.embedself.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, X{})
 	tcheck(t, err, "open")
@@ -3283,7 +3308,8 @@ func TestOndiskV1(t *testing.T) {
 	type Noncyclic struct {
 		ID int
 	}
-	path := "testdata/ondiskv1.db"
+
+	const path = "testdata/tmp.ondiskv1.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, Noncyclic{})
 	tcheck(t, err, "open")
@@ -3302,7 +3328,8 @@ func TestOndiskV2A(t *testing.T) {
 		ID int
 		A  A
 	}
-	path := "testdata/ondiskv2a.db"
+
+	const path = "testdata/tmp.ondiskv2a.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, Named{})
 	tcheck(t, err, "open")
@@ -3331,7 +3358,7 @@ func TestOndiskV2B(t *testing.T) {
 		Cyclic *CyclicSwapped
 	}
 
-	path := "testdata/ondiskv2b.db"
+	const path = "testdata/tmp.ondiskv2b.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, Cyclic{})
 	tcheck(t, err, "open")
@@ -3368,7 +3395,7 @@ func TestPtrPtr(t *testing.T) {
 		Unsupported **string
 	}
 
-	path := "testdata/ptrptr.db"
+	const path = "testdata/tmp.ptrptr.db"
 	os.Remove(path)
 	_, err := topen(t, path, nil, X{})
 	tneed(t, err, ErrType, "open")
@@ -3382,7 +3409,7 @@ func TestSchemaCheck(t *testing.T) {
 
 	defer os.Setenv("bstore_schema_check", "")
 
-	path := "testdata/schemacheck.db"
+	const path = "testdata/tmp.schemacheck.db"
 	os.Remove(path)
 	os.Setenv("bstore_schema_check", "changed")
 	db, err := Open(ctxbg, path, nil, X{})
@@ -3413,7 +3440,7 @@ func TestMmapSafety(t *testing.T) {
 		Buf   []byte
 	}
 
-	const path = "testdata/mmapsafety.db"
+	const path = "testdata/tmp.mmapsafety.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, T{})
 	tcheck(t, err, "open")
@@ -3453,7 +3480,7 @@ func BenchmarkGet(b *testing.B) {
 		ID   int
 		Name string `bstore:"unique"`
 	}
-	path := "testdata/benchmarkget.db"
+	const path = "testdata/tmp.benchmarkget.db"
 	os.Remove(path)
 	db, err := Open(ctxbg, path, nil, User{})
 	bcheck(b, err, "open")
@@ -3489,7 +3516,7 @@ func BenchmarkRange(b *testing.B) {
 		ID   int
 		Name string `bstore:"unique"`
 	}
-	path := "testdata/benchmarkrange.db"
+	const path = "testdata/tmp.benchmarkrange.db"
 	os.Remove(path)
 	db, err := Open(ctxbg, path, nil, User{})
 	bcheck(b, err, "open")
@@ -3529,7 +3556,7 @@ func BenchmarkInsert(b *testing.B) {
 		ID   int
 		Name string
 	}
-	path := "testdata/benchmarkinsert.db"
+	const path = "testdata/tmp.benchmarkinsert.db"
 	os.Remove(path)
 	db, err := Open(ctxbg, path, nil, User{})
 	bcheck(b, err, "open")

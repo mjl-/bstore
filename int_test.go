@@ -23,8 +23,9 @@ func TestIntwidth(t *testing.T) {
 		ID  uint
 		Int int
 	}
-	os.Remove("testdata/intwidth.db")
-	db, err := topen(t, "testdata/intwidth.db", nil, User{}, User2{})
+	const path = "testdata/tmp.intwidth.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, User{}, User2{})
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 

@@ -11,8 +11,9 @@ import (
 func tneedpkkey[T any](t *testing.T, openErr, insertErr error, v T, field string) {
 	t.Helper()
 
-	os.Remove("testdata/pkkeys.db")
-	db, err := topen(t, "testdata/pkkeys.db", nil, v)
+	const path = "testdata/tmp.pkkeys.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, v)
 	if openErr != nil {
 		tneed(t, err, openErr, "open/register")
 		return

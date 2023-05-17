@@ -11,8 +11,9 @@ func TestContext(t *testing.T) {
 		ID int
 	}
 
-	os.Remove("testdata/context.db")
-	db, err := topen(t, "testdata/context.db", nil, X{})
+	const path = "testdata/tmp.context.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, X{})
 	tcheck(t, err, "open")
 
 	err = db.Insert(ctxbg, &X{}, &X{})

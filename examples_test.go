@@ -44,7 +44,7 @@ func Example() {
 
 	// For tests.
 	os.Mkdir("testdata", 0700)
-	path := "testdata/mail.db"
+	const path = "testdata/mail.db"
 	os.Remove(path)
 
 	ctx := context.Background() // Possibly replace with a request context.
