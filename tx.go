@@ -155,7 +155,7 @@ func (tx *Tx) checkReferences(tv *typeVersion, pk []byte, ov, rv reflect.Value) 
 				return err
 			}
 			if rb.Get(k) == nil {
-				return fmt.Errorf("%w: value %v from field %q to %q", ErrReference, frv.Interface(), f.Name, name)
+				return fmt.Errorf("%w: value %v from %q to %q", ErrReference, frv.Interface(), tv.name+"."+f.Name, name)
 			}
 		}
 	}
