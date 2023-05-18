@@ -154,6 +154,13 @@ func (db *DB) Register(ctx context.Context, typeValues ...any) error {
 					return fmt.Errorf("internal error: packing schema for type %q", tv.name)
 				}
 
+				// Sanity check: parse the typeVersion again, and check that we think it is equal to the typeVersion just written.
+				if xtv, err := parseSchema(k, v); err != nil {
+					return fmt.Errorf("%w: parsing generated typeVersion: %v", ErrStore, err)
+				} else if !xtv.typeEqual(*tv) {
+					return fmt.Errorf("%w: generated typeVersion not equal to itself after pack and parse", ErrStore)
+				}
+
 				// note: we don't track types bucket operations in stats.
 				if err := tb.Put(k, v); err != nil {
 					return fmt.Errorf("storing new schema: %w", err)
@@ -658,8 +665,6 @@ func (tv *typeVersion) resolveStructFields(seqFields map[int][]field, ft *fieldT
 		// note: ondiskVersion1 does not have/use this field, so it defaults to 0.
 		if ft.FieldsTypeSeq == 0 {
 			ft.structFields = ft.DefinitionFields
-		} else {
-			tv.OndiskVersion = ondiskVersion2
 		}
 
 		for i := range ft.DefinitionFields {
@@ -706,7 +711,7 @@ func gatherTypeVersion(t reflect.Type) (*typeVersion, error) {
 	}
 	tv := &typeVersion{
 		Version:       0,              // Set by caller.
-		OndiskVersion: ondiskVersion1, // Set to ondiskVersion2 when a referenced type is encountered.
+		OndiskVersion: ondiskVersion2, // When opening a database with ondiskVersion1, we add a new typeVersion.
 		ReferencedBy:  map[string]struct{}{},
 		name:          tname,
 		fillPercent:   0.5,

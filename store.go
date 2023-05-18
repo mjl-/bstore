@@ -3,6 +3,7 @@ package bstore
 import (
 	"context"
 	"encoding"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 
 /*
 - todo: should thoroughly review guarantees, where some of the bstore struct tags are allowed (e.g. top-level fields vs deeper struct fields), check that all features work well when combined (cyclic types, embed structs, default values, nonzero checks, type equality, zero values with fieldmap, skipping values (hidden due to later typeversions) and having different type versions), write more extensive tests.
+- write tests for invalid (meta)data inside the boltdb buckets (not for invalid boltdb files). we should detect the error properly, give a reasonable message. we shouldn't panic (nil deref, out of bounds index, consume too much memory). typeVersions, records, indices.
 - todo: should we add a way for ad-hoc data manipulation? e.g. with sql-like queries, e.g. update, delete, insert; and export results of queries to csv.
 - todo: should we have a function that returns records in a map? eg Map() that is like List() but maps a key to T (too bad we cannot have a type for the key!).
 - todo: better error messages (ordering of description & error; mention typename, fields (path), field types and offending value & type more often)
@@ -123,9 +125,9 @@ type typeVersion struct {
 type field struct {
 	Name       string
 	Type       fieldType
-	Nonzero    bool
-	References []string // Referenced fields. Only for the top-level struct fields, not for nested structs.
-	Default    string   // As specified in struct tag. Processed version is defaultValue.
+	Nonzero    bool     `json:",omitempty"`
+	References []string `json:",omitempty"` // Referenced fields. Only for the top-level struct fields, not for nested structs.
+	Default    string   `json:",omitempty"` // As specified in struct tag. Processed version is defaultValue.
 
 	// If not the zero reflect.Value, set this value instead of a zero value on insert.
 	// This is always a non-pointer value. Only set for the current typeVersion
@@ -151,63 +153,105 @@ type embed struct {
 	structField reflect.StructField
 }
 
-type kind int
+type kind string
+
+func (k kind) MarshalJSON() ([]byte, error) {
+	return json.Marshal(string(k))
+}
+
+func (k *kind) UnmarshalJSON(buf []byte) error {
+	if string(buf) == "null" {
+		return nil
+	}
+	if len(buf) > 0 && buf[0] == '"' {
+		var s string
+		if err := json.Unmarshal(buf, &s); err != nil {
+			return fmt.Errorf("parsing fieldType.Kind string value %q: %v", buf, err)
+		}
+		nk, ok := kindsMap[s]
+		if !ok {
+			return fmt.Errorf("unknown fieldType.Kind value %q", s)
+		}
+		*k = nk
+		return nil
+	}
+
+	// In ondiskVersion1, the kinds were integers, starting at 1.
+	var i int
+	if err := json.Unmarshal(buf, &i); err != nil {
+		return fmt.Errorf("parsing fieldType.Kind int value %q: %v", buf, err)
+	}
+	if i <= 0 || i-1 >= len(kinds) {
+		return fmt.Errorf("unknown fieldType.Kind value %d", i)
+	}
+	*k = kinds[i-1]
+	return nil
+}
 
 const (
-	kindInvalid kind = iota
-	kindBytes
-	kindBool
-	kindInt
-	kindInt8
-	kindInt16
-	kindInt32
-	kindInt64
-	kindUint
-	kindUint8
-	kindUint16
-	kindUint32
-	kindUint64
-	kindFloat32
-	kindFloat64
-	kindMap
-	kindSlice
-	kindString
-	kindTime
-	kindBinaryMarshal
-	kindStruct
+	kindBytes         kind = "bytes" // 1, etc
+	kindBool          kind = "bool"
+	kindInt           kind = "int"
+	kindInt8          kind = "int8"
+	kindInt16         kind = "int16"
+	kindInt32         kind = "int32"
+	kindInt64         kind = "int64"
+	kindUint          kind = "uint"
+	kindUint8         kind = "uint8"
+	kindUint16        kind = "uint16"
+	kindUint32        kind = "uint32"
+	kindUint64        kind = "uint64"
+	kindFloat32       kind = "float32"
+	kindFloat64       kind = "float64"
+	kindMap           kind = "map"
+	kindSlice         kind = "slice"
+	kindString        kind = "string"
+	kindTime          kind = "time"
+	kindBinaryMarshal kind = "binarymarshal"
+	kindStruct        kind = "struct"
 )
 
-var kindStrings = []string{
-	"(invalid)",
-	"bytes",
-	"bool",
-	"int",
-	"int8",
-	"int16",
-	"int32",
-	"int64",
-	"uint",
-	"uint8",
-	"uint16",
-	"uint32",
-	"uint64",
-	"float32",
-	"float64",
-	"map",
-	"slice",
-	"string",
-	"time",
-	"binarymarshal",
-	"struct",
+// in ondiskVersion1, the kinds were integers, starting at 1.
+var kinds = []kind{
+	kindBytes,
+	kindBool,
+	kindInt,
+	kindInt8,
+	kindInt16,
+	kindInt32,
+	kindInt64,
+	kindUint,
+	kindUint8,
+	kindUint16,
+	kindUint32,
+	kindUint64,
+	kindFloat32,
+	kindFloat64,
+	kindMap,
+	kindSlice,
+	kindString,
+	kindTime,
+	kindBinaryMarshal,
+	kindStruct,
 }
 
-func (k kind) String() string {
-	return kindStrings[k]
+func makeKindsMap() map[string]kind {
+	m := map[string]kind{}
+	for _, k := range kinds {
+		m[string(k)] = k
+	}
+	return m
 }
+
+var kindsMap = makeKindsMap()
 
 type fieldType struct {
-	Ptr  bool // If type is a pointer.
+	Ptr  bool `json:",omitempty"` // If type is a pointer.
 	Kind kind // Type with possible Ptr deferenced.
+
+	MapKey   *fieldType `json:",omitempty"`
+	MapValue *fieldType `json:",omitempty"` // For kindMap.
+	List     *fieldType `json:",omitempty"` // For kindSlice.
 
 	// For kindStruct, the fields of the struct. Only set for the first use of the type
 	// within a registered type. Code dealing with fields should use structFields
@@ -215,7 +259,7 @@ type fieldType struct {
 	// the type reference.
 	// Named "Fields" in JSON to stay compatible with ondiskVersion1, named
 	// DefinitionFields in Go for clarity.
-	DefinitionFields []field `json:"Fields"`
+	DefinitionFields []field `json:"Fields,omitempty"`
 
 	// For struct types, the sequence number of this type (within the registered type).
 	// Needed for supporting cyclic types.  Each struct type is assigned the next
@@ -224,19 +268,15 @@ type fieldType struct {
 	// depth-first). If negative, it references the type with positive seq (when a
 	// field is encountered of a type that was seen before). New since ondiskVersion2,
 	// structs in ondiskVersion1 will have zero value 0.
-	FieldsTypeSeq int
+	FieldsTypeSeq int `json:",omitempty"`
 
 	// Fields after taking cyclic types into account. Set when registering/loading a
 	// type. Not stored on disk because of potential cyclic data.
 	structFields []field
-
-	MapKey, MapValue *fieldType // For kindMap.
-	List             *fieldType // For kindSlice.
-
 }
 
 func (ft fieldType) String() string {
-	s := ft.Kind.String()
+	s := string(ft.Kind)
 	if ft.Ptr {
 		return s + "ptr"
 	}
@@ -485,9 +525,9 @@ func typeKind(t reflect.Type) (kind, error) {
 		return kindStruct, nil
 	}
 	if t.Kind() == reflect.Ptr {
-		return kind(0), fmt.Errorf("%w: pointer to pointers not supported: %v", ErrType, t.Elem())
+		return "", fmt.Errorf("%w: pointer to pointers not supported: %v", ErrType, t.Elem())
 	}
-	return kind(0), fmt.Errorf("%w: unsupported type %v", ErrType, t)
+	return "", fmt.Errorf("%w: unsupported type %v", ErrType, t)
 }
 
 func typeName(t reflect.Type) (string, error) {

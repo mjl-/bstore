@@ -3305,17 +3305,17 @@ func TestEmbedSelf(t *testing.T) {
 }
 
 func TestOndiskV1(t *testing.T) {
-	type Noncyclic struct {
+	type NonNamedStruct struct {
 		ID int
 	}
 
 	const path = "testdata/tmp.ondiskv1.db"
 	os.Remove(path)
-	db, err := topen(t, path, nil, Noncyclic{})
+	db, err := topen(t, path, nil, NonNamedStruct{})
 	tcheck(t, err, "open")
 
-	// Types that don't reference other structs get ondiskVersion1.
-	tcompare(t, nil, db.typeNames["Noncyclic"].Current.OndiskVersion, uint32(ondiskVersion1), "checking for ondisk version")
+	// Types that don't reference other structs also get ondiskVersion2.
+	tcompare(t, nil, db.typeNames["NonNamedStruct"].Current.OndiskVersion, uint32(ondiskVersion2), "checking for ondisk version")
 
 	tclose(t, db)
 }

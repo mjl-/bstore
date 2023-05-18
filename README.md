@@ -1,4 +1,4 @@
-Bstore is a database library for storing and quering Go struct data.
+Bstore is a database library for storing and quering Go values.
 
 Bstore is designed as a small, pure Go library that still provides most of
 the common data consistency requirements for modest database use cases. Bstore
