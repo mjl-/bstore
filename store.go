@@ -16,6 +16,7 @@ import (
 )
 
 /*
+- todo: should thoroughly review guarantees, where some of the bstore struct tags are allowed (e.g. top-level fields vs deeper struct fields), check that all features work well when combined (cyclic types, embed structs, default values, nonzero checks, type equality, zero values with fieldmap, skipping values (hidden due to later typeversions) and having different type versions), write more extensive tests.
 - todo: should we add a way for ad-hoc data manipulation? e.g. with sql-like queries, e.g. update, delete, insert; and export results of queries to csv.
 - todo: should we have a function that returns records in a map? eg Map() that is like List() but maps a key to T (too bad we cannot have a type for the key!).
 - todo: better error messages (ordering of description & error; mention typename, fields (path), field types and offending value & type more often)
@@ -136,6 +137,9 @@ type field struct {
 	// if this field is no longer in the type, or if it has been removed and
 	// added again in later schema versions.
 	structField reflect.StructField
+	// Whether this field has been prepared for parsing into, i.e.
+	// structField set if needed.
+	prepared bool
 
 	indices map[string]*index
 }

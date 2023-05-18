@@ -668,12 +668,13 @@ func (tv *typeVersion) resolveStructFields(seqFields map[int][]field, ft *fieldT
 			}
 		}
 	}
-	ftl := []*fieldType{ft.MapKey, ft.MapValue, ft.List}
-	for _, ft := range ftl {
-		if ft == nil {
+
+	xftl := []*fieldType{ft.MapKey, ft.MapValue, ft.List}
+	for _, xft := range xftl {
+		if xft == nil {
 			continue
 		}
-		if err := tv.resolveStructFields(seqFields, ft); err != nil {
+		if err := tv.resolveStructFields(seqFields, xft); err != nil {
 			return err
 		}
 	}
@@ -1011,7 +1012,7 @@ func gatherTypeFields(typeSeqs map[reflect.Type]int, t reflect.Type, needFirst, 
 			e := embed{name, ft, sf}
 			embedFields = append(embedFields, e)
 		} else {
-			f := field{name, ft, nonzero, tags.List("ref"), defstr, def, sf, nil}
+			f := field{name, ft, nonzero, tags.List("ref"), defstr, def, sf, false, nil}
 			fields = append(fields, f)
 		}
 	}
@@ -1145,6 +1146,10 @@ tv:
 }
 
 func (f *field) prepare(nfields []field, later, mvlater [][]field) {
+	if f.prepared {
+		return
+	}
+	f.prepared = true
 	for _, nf := range nfields {
 		if nf.Name == f.Name {
 			f.structField = nf.structField
@@ -1165,12 +1170,12 @@ func (ft fieldType) laterFields() (later, mvlater []field) {
 }
 
 func (ft fieldType) prepare(nft *fieldType, later, mvlater [][]field) {
-	for i, f := range ft.DefinitionFields {
+	for i, f := range ft.structFields {
 		nlater, nmvlater, skip := lookupLater(f.Name, later)
 		if skip {
 			continue
 		}
-		ft.DefinitionFields[i].prepare(nft.DefinitionFields, nlater, nmvlater)
+		ft.structFields[i].prepare(nft.structFields, nlater, nmvlater)
 	}
 	if ft.MapKey != nil {
 		ft.MapKey.prepare(nft.MapKey, later, nil)

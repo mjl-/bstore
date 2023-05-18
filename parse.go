@@ -264,7 +264,9 @@ func (ft fieldType) parse(p *parser, rv reflect.Value) {
 		strct := reflect.New(rv.Type()).Elem()
 		for i, f := range ft.structFields {
 			if f.structField.Type == nil {
-				f.Type.skip(p)
+				if fm.Nonzero(i) {
+					f.Type.skip(p)
+				}
 				continue
 			}
 			if fm.Nonzero(i) {
