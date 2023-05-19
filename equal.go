@@ -63,7 +63,15 @@ func (ft fieldType) equal(ov, v reflect.Value) (r bool) {
 			return false
 		}
 		for i := 0; i < n; i++ {
-			if !ft.List.equal(ov.Index(i), v.Index(i)) {
+			if !ft.ListElem.equal(ov.Index(i), v.Index(i)) {
+				return false
+			}
+		}
+		return true
+	case kindArray:
+		n := ft.ArrayLength
+		for i := 0; i < n; i++ {
+			if !ft.ListElem.equal(ov.Index(i), v.Index(i)) {
 				return false
 			}
 		}

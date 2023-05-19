@@ -24,7 +24,7 @@ func (f field) applyDefault(rv reflect.Value) error {
 	case kindBytes, kindBinaryMarshal, kindMap:
 		return nil
 
-	case kindSlice, kindStruct:
+	case kindSlice, kindStruct, kindArray:
 		return f.Type.applyDefault(rv)
 
 	case kindBool, kindInt, kindInt8, kindInt16, kindInt32, kindInt64, kindUint, kindUint8, kindUint16, kindUint32, kindUint64, kindFloat32, kindFloat64, kindString, kindTime:
@@ -64,7 +64,14 @@ func (ft fieldType) applyDefault(rv reflect.Value) error {
 	case kindSlice:
 		n := rv.Len()
 		for i := 0; i < n; i++ {
-			if err := ft.List.applyDefault(rv.Index(i)); err != nil {
+			if err := ft.ListElem.applyDefault(rv.Index(i)); err != nil {
+				return err
+			}
+		}
+	case kindArray:
+		n := ft.ArrayLength
+		for i := 0; i < n; i++ {
+			if err := ft.ListElem.applyDefault(rv.Index(i)); err != nil {
 				return err
 			}
 		}

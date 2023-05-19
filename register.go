@@ -556,14 +556,14 @@ func (db *DB) Register(ctx context.Context, typeValues ...any) error {
 						prev := keys[i-1]
 						if bytes.Equal(prev.buf[:prev.pre], k.buf[:k.pre]) {
 							// Do quite a bit of work to make a helpful error message.
-							a := reflect.New(reflect.TypeOf(idx.tv.Fields[0].Type.zero(nil))).Elem()
-							b := reflect.New(reflect.TypeOf(idx.tv.Fields[0].Type.zero(nil))).Elem()
+							a := reflect.New(reflect.TypeOf(idx.tv.Fields[0].Type.zeroKey())).Elem()
+							b := reflect.New(reflect.TypeOf(idx.tv.Fields[0].Type.zeroKey())).Elem()
 							parsePK(a, prev.buf[prev.pre:]) // Ignore error, nothing to do.
 							parsePK(b, k.buf[k.pre:])       // Ignore error, nothing to do.
 							var dup []any
 							_, values, _ := idx.parseKey(k.buf, true)
 							for i := range values {
-								x := reflect.New(reflect.TypeOf(idx.Fields[i].Type.zero(nil))).Elem()
+								x := reflect.New(reflect.TypeOf(idx.Fields[i].Type.zeroKey())).Elem()
 								parsePK(x, values[i]) // Ignore error, nothing to do.
 								dup = append(dup, x.Interface())
 							}
@@ -674,7 +674,7 @@ func (tv *typeVersion) resolveStructFields(seqFields map[int][]field, ft *fieldT
 		}
 	}
 
-	xftl := []*fieldType{ft.MapKey, ft.MapValue, ft.List}
+	xftl := []*fieldType{ft.MapKey, ft.MapValue, ft.ListElem}
 	for _, xft := range xftl {
 		if xft == nil {
 			continue
@@ -1054,9 +1054,16 @@ func gatherFieldType(typeSeqs map[reflect.Type]int, t reflect.Type, inMap, newSe
 	case kindSlice:
 		l, err := gatherFieldType(typeSeqs, t.Elem(), inMap, newSeq)
 		if err != nil {
-			return ft, fmt.Errorf("list: %w", err)
+			return ft, fmt.Errorf("slice: %w", err)
 		}
-		ft.List = &l
+		ft.ListElem = &l
+	case kindArray:
+		l, err := gatherFieldType(typeSeqs, t.Elem(), inMap, newSeq)
+		if err != nil {
+			return ft, fmt.Errorf("array: %w", err)
+		}
+		ft.ListElem = &l
+		ft.ArrayLength = t.Len()
 	case kindMap:
 		kft, err := gatherFieldType(typeSeqs, t.Key(), true, newSeq)
 		if err != nil {
@@ -1168,8 +1175,8 @@ func (ft fieldType) laterFields() (later, mvlater []field) {
 		later, _ = ft.MapKey.laterFields()
 		mvlater, _ = ft.MapValue.laterFields()
 		return later, mvlater
-	} else if ft.List != nil {
-		return ft.List.laterFields()
+	} else if ft.ListElem != nil {
+		return ft.ListElem.laterFields()
 	}
 	return ft.structFields, nil
 }
@@ -1186,8 +1193,8 @@ func (ft fieldType) prepare(nft *fieldType, later, mvlater [][]field) {
 		ft.MapKey.prepare(nft.MapKey, later, nil)
 		ft.MapValue.prepare(nft.MapValue, mvlater, nil)
 	}
-	if ft.List != nil {
-		ft.List.prepare(nft.List, later, mvlater)
+	if ft.ListElem != nil {
+		ft.ListElem.prepare(nft.ListElem, later, mvlater)
 	}
 }
 
@@ -1260,7 +1267,10 @@ func (ft fieldType) typeEqual(nft fieldType) bool {
 	if ft.MapKey != nil && (!ft.MapKey.typeEqual(*nft.MapKey) || !ft.MapValue.typeEqual(*nft.MapValue)) {
 		return false
 	}
-	if ft.List != nil && !ft.List.typeEqual(*nft.List) {
+	if ft.ListElem != nil && !ft.ListElem.typeEqual(*nft.ListElem) {
+		return false
+	}
+	if ft.ArrayLength != nft.ArrayLength {
 		return false
 	}
 	return true
@@ -1392,8 +1402,19 @@ func (ft fieldType) compatible(nft fieldType, checked map[[2]int]struct{}) (bool
 		if nk != k {
 			return false, fmt.Errorf("slice to %v: %w", nk, ErrIncompatible)
 		}
-		if _, err := ft.List.compatible(*nft.List, checked); err != nil {
-			return false, fmt.Errorf("list: %w", err)
+		if _, err := ft.ListElem.compatible(*nft.ListElem, checked); err != nil {
+			return false, fmt.Errorf("slice: %w", err)
+		}
+		return false, nil
+	case kindArray:
+		if nk != k {
+			return false, fmt.Errorf("array to %v: %w", nk, ErrIncompatible)
+		}
+		if nft.ArrayLength != ft.ArrayLength {
+			return false, fmt.Errorf("array size cannot change (from %d to %d)", ft.ArrayLength, nft.ArrayLength)
+		}
+		if _, err := ft.ListElem.compatible(*nft.ListElem, checked); err != nil {
+			return false, fmt.Errorf("array: %w", err)
 		}
 		return false, nil
 	case kindStruct:
@@ -1435,8 +1456,8 @@ func (ft fieldType) hasNonzeroField(stopAtPtr bool) bool {
 	switch ft.Kind {
 	case kindMap:
 		return ft.MapValue.hasNonzeroField(true)
-	case kindSlice:
-		return ft.List.hasNonzeroField(true)
+	case kindSlice, kindArray:
+		return ft.ListElem.hasNonzeroField(true)
 	case kindStruct:
 		for _, f := range ft.structFields {
 			if f.Nonzero || f.Type.hasNonzeroField(true) {

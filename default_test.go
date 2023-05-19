@@ -67,6 +67,11 @@ func TestDefault(t *testing.T) {
 		Map map[string]Struct // Invalid default inside map.
 	}
 
+	type Bad6 struct {
+		ID    int
+		Array [2]float32 `bstore:"default x"` // Not allowed on array.
+	}
+
 	const path = "testdata/tmp.default.db"
 	os.Remove(path)
 
@@ -84,6 +89,9 @@ func TestDefault(t *testing.T) {
 
 	_, err = topen(t, path, nil, Bad5{})
 	tneed(t, err, ErrType, "bad5")
+
+	_, err = topen(t, path, nil, Bad6{})
+	tneed(t, err, ErrType, "bad6")
 
 	db, err := topen(t, path, nil, User{}, Deep{})
 	tcheck(t, err, "open")

@@ -88,8 +88,7 @@ func (tx *Tx) Keys(typeName string, fn func(pk any) error) error {
 
 	ctxDone := tx.ctx.Done()
 
-	// todo: do not pass nil parser?
-	v := reflect.New(reflect.TypeOf(tv.Fields[0].Type.zero(nil))).Elem()
+	v := reflect.New(reflect.TypeOf(tv.Fields[0].Type.zeroKey())).Elem()
 	return rb.ForEach(func(bk, bv []byte) error {
 		tx.stats.Records.Cursor++
 
@@ -166,7 +165,7 @@ func (tx *Tx) Record(typeName, key string, fields *[]string) (map[string]any, er
 	if kind != tv.Fields[0].Type.Kind {
 		// Convert from various int types above to required type. The ParseInt/ParseUint
 		// calls already validated that the values fit.
-		pkt := reflect.TypeOf(tv.Fields[0].Type.zero(nil))
+		pkt := reflect.TypeOf(tv.Fields[0].Type.zeroKey())
 		pkv = pkv.Convert(pkt)
 	}
 	k, err := packPK(pkv)
@@ -241,7 +240,7 @@ func parseMap(versions map[uint32]*typeVersion, bk, bv []byte) (record map[strin
 
 	r := map[string]any{}
 
-	v := reflect.New(reflect.TypeOf(tv.Fields[0].Type.zero(p))).Elem()
+	v := reflect.New(reflect.TypeOf(tv.Fields[0].Type.zeroKey())).Elem()
 	err := parsePK(v, bk)
 	if err != nil {
 		return nil, err
@@ -256,7 +255,7 @@ func parseMap(versions map[uint32]*typeVersion, bk, bv []byte) (record map[strin
 		if fm.Nonzero(i) {
 			r[f.Name] = f.Type.parseValue(p)
 		} else {
-			r[f.Name] = f.Type.zero(p)
+			r[f.Name] = f.Type.zeroExportValue()
 		}
 	}
 
@@ -328,12 +327,19 @@ func (ft fieldType) parseValue(p *parser) any {
 		var l []any
 		for i := 0; i < n; i++ {
 			if fm.Nonzero(i) {
-				l = append(l, ft.List.parseValue(p))
+				l = append(l, ft.ListElem.parseValue(p))
 			} else {
 				// Always add non-zero elements, or we would
 				// change the number of elements in a list.
-				l = append(l, ft.List.zero(p))
+				l = append(l, ft.ListElem.zeroExportValue())
 			}
+		}
+		return l
+	case kindArray:
+		n := ft.ArrayLength
+		var l []any
+		for i := 0; i < n; i++ {
+			l = append(l, ft.ListElem.parseValue(p))
 		}
 		return l
 	case kindMap:
@@ -351,7 +357,7 @@ func (ft fieldType) parseValue(p *parser) any {
 			if fm.Nonzero(i) {
 				v = ft.MapValue.parseValue(p)
 			} else {
-				v = ft.MapValue.zero(p)
+				v = ft.MapValue.zeroExportValue()
 			}
 			m[k] = v
 		}
@@ -363,7 +369,7 @@ func (ft fieldType) parseValue(p *parser) any {
 			if fm.Nonzero(i) {
 				m[f.Name] = f.Type.parseValue(p)
 			} else {
-				m[f.Name] = f.Type.zero(p)
+				m[f.Name] = f.Type.zeroExportValue()
 			}
 		}
 		return m
@@ -372,7 +378,7 @@ func (ft fieldType) parseValue(p *parser) any {
 	panic("cannot happen")
 }
 
-var zerovalues = map[kind]any{
+var zeroExportValues = map[kind]any{
 	kindBytes:         []byte(nil),
 	kindBinaryMarshal: []byte(nil), // We don't have the actual type available, so we just return binary data.
 	kindBool:          false,
@@ -393,12 +399,53 @@ var zerovalues = map[kind]any{
 	kindSlice:         []any(nil),
 	kindMap:           map[string]any(nil),
 	kindStruct:        map[string]any(nil),
+	// kindArray handled in zeroExportValue()
 }
 
-func (ft fieldType) zero(p *parser) any {
-	v, ok := zerovalues[ft.Kind]
+// zeroExportValue returns the zero value for a fieldType for use with exporting.
+func (ft fieldType) zeroExportValue() any {
+	if ft.Kind == kindArray {
+		ev := ft.ListElem.zeroExportValue()
+		l := make([]any, ft.ArrayLength)
+		for i := 0; i < ft.ArrayLength; i++ {
+			l[i] = ev
+		}
+		return l
+	}
+	v, ok := zeroExportValues[ft.Kind]
 	if !ok {
-		p.Errorf("internal error: unhandled zero value for field type %v", ft.Kind)
+		panic(fmt.Errorf("internal error: unhandled zero value for field type %v", ft.Kind))
+	}
+	return v
+}
+
+var zeroKeys = map[kind]any{
+	kindBytes:  []byte(nil),
+	kindBool:   false,
+	kindInt8:   int8(0),
+	kindInt16:  int16(0),
+	kindInt32:  int32(0),
+	kindInt:    int(0),
+	kindInt64:  int64(0),
+	kindUint8:  uint8(0),
+	kindUint16: uint16(0),
+	kindUint32: uint32(0),
+	kindUint:   uint(0),
+	kindUint64: uint64(0),
+	kindString: "",
+	kindTime:   zerotime,
+	// kindSlice handled in zeroKeyValue()
+}
+
+// zeroKeyValue returns the zero value for a fieldType for use with exporting.
+func (ft fieldType) zeroKey() any {
+	k := ft.Kind
+	if k == kindSlice {
+		k = ft.ListElem.Kind
+	}
+	v, ok := zeroKeys[k]
+	if !ok {
+		panic(fmt.Errorf("internal error: unhandled zero value for field type %v", ft.Kind))
 	}
 	return v
 }

@@ -153,7 +153,7 @@ fields:
 		ft := f.Type
 		if ft.Kind == kindSlice {
 			// For an index on a slice, we store each value in the slice in a separate index key.
-			ft = *ft.List
+			ft = *ft.ListElem
 		}
 		switch ft.Kind {
 		case kindString:

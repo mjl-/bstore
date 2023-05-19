@@ -97,11 +97,12 @@ func TestKeys(t *testing.T) {
 	tneedpkkey(t, nil, ErrZero, Auto[bool]{false}, "")
 	tneedpkkey(t, nil, ErrZero, Auto[[]byte]{[]byte(nil)}, "")
 
-	// Cannot use other types as index.
+	// Cannot use other types as PK.
 	tneedpkkey(t, ErrType, nil, Auto[time.Time]{time.Now()}, "")
 	tneedpkkey(t, ErrType, nil, Auto[[]string]{nil}, "")
 	tneedpkkey(t, ErrType, nil, Auto[Struct]{Struct{1}}, "")
 	tneedpkkey(t, ErrType, nil, Auto[Map]{Map{"a": 1}}, "")
+	tneedpkkey(t, ErrType, nil, Auto[[2]float32]{[...]float32{0, 0}}, "")
 
 	// Inserting non-zero PK's is fine.
 	tneedpkkey(t, nil, nil, Auto[string]{"test"}, "PK")
@@ -162,6 +163,7 @@ func TestKeys(t *testing.T) {
 	tneedpkkey(t, ErrType, nil, Index[[]byte]{0, []byte("a")}, "")
 	tneedpkkey(t, ErrType, nil, Index[Struct]{0, Struct{1}}, "")
 	tneedpkkey(t, ErrType, nil, Index[Map]{0, Map{"a": 1}}, "")
+	tneedpkkey(t, ErrType, nil, Index[[2]float32]{0, [2]float32{1, 2}}, "")
 
 	// Inserting non-zero PK's is fine.
 	tneedpkkey(t, nil, nil, Unique[uint8]{0, 1}, "Field")
@@ -180,11 +182,12 @@ func TestKeys(t *testing.T) {
 	tneedpkkey(t, nil, nil, Unique[bool]{0, true}, "Field")
 	tneedpkkey(t, nil, nil, Unique[time.Time]{0, time.Now()}, "Field")
 
-	// Cannot use other types as index.
+	// Cannot use other types as unique (index).
 	tneedpkkey(t, ErrType, nil, Unique[[]byte]{0, []byte("a")}, "")
 	tneedpkkey(t, ErrType, nil, Unique[[]string]{0, nil}, "")
 	tneedpkkey(t, ErrType, nil, Unique[Struct]{0, Struct{1}}, "")
 	tneedpkkey(t, ErrType, nil, Unique[Map]{0, Map{"a": 1}}, "")
+	tneedpkkey(t, ErrType, nil, Unique[[2]float32]{0, [2]float32{1, 2}}, "")
 
 	// Multiple keys with slice field are not allowed.
 	type MultipleSliceFields struct {

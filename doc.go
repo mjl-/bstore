@@ -21,7 +21,7 @@ types, but not pointers to pointers:
   - uint (as uint32), uint8, uint16, uint32, uint64
   - bool, float32, float64, string, []byte
   - Maps, with keys and values of any supported type, except keys with pointer types.
-  - Slices, with elements of any supported type.
+  - Slices and arrays, with elements of any supported type.
   - time.Time
   - Types that implement binary.MarshalBinary and binary.UnmarshalBinary, useful
     for struct types with state in private fields. Do not change the
@@ -71,6 +71,7 @@ some have multiple space-separated words:
     index, and only one slice field per index), allowing fast lookup of any single
     value in the slice with Query.FilterIn. Indices are automatically (re)created
     when registering a type. Fields with a pointer type cannot have an index.
+    String values used in an index cannot contain a \0.
   - "unique" or "unique  <field1>+<field2>+<...> [<name>]", adds an index as with
     "index" and also enforces a unique constraint. For time.Time the timezone is
     ignored for the uniqueness check.
@@ -85,8 +86,8 @@ some have multiple space-separated words:
     Times are parsed as time.RFC3339 otherwise. Supported types: bool
     ("true"/"false"), integers, floats, strings. Value is not quoted and no escaping
     of special characters, like the comma that separates struct tag words, is
-    possible.  Defaults are also replaced on fields in nested structs and
-    slices, but not in maps.
+    possible.  Defaults are also replaced on fields in nested structs, slices
+    and arrays, but not in maps.
   - "typename <name>", override name of the type. The name of the Go type is
     used by default. Can only be present on the first field (primary key).
     Useful for doing schema updates.

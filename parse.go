@@ -240,10 +240,18 @@ func (ft fieldType) parse(p *parser, rv reflect.Value) {
 		slc := reflect.MakeSlice(rv.Type(), n, n)
 		for i := 0; i < int(n); i++ {
 			if fm.Nonzero(i) {
-				ft.List.parse(p, slc.Index(i))
+				ft.ListElem.parse(p, slc.Index(i))
 			}
 		}
 		rv.Set(slc)
+	case kindArray:
+		n := ft.ArrayLength
+		fm := p.Fieldmap(n)
+		for i := 0; i < n; i++ {
+			if fm.Nonzero(i) {
+				ft.ListElem.parse(p, rv.Index(i))
+			}
+		}
 	case kindMap:
 		un := p.Uvarint()
 		n := p.checkInt(un)
@@ -306,7 +314,15 @@ func (ft fieldType) skip(p *parser) {
 		fm := p.Fieldmap(n)
 		for i := 0; i < n; i++ {
 			if fm.Nonzero(i) {
-				ft.List.skip(p)
+				ft.ListElem.skip(p)
+			}
+		}
+	case kindArray:
+		n := ft.ArrayLength
+		fm := p.Fieldmap(n)
+		for i := 0; i < n; i++ {
+			if fm.Nonzero(i) {
+				ft.ListElem.skip(p)
 			}
 		}
 	case kindMap:

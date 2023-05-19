@@ -183,9 +183,15 @@ func nonzeroCheckGatherFieldType(m map[reflect.Type]*nonzeroCheckType, t, refBy 
 	case kindSlice:
 		var loft *fieldType
 		if oft != nil {
-			loft = oft.List
+			loft = oft.ListElem
 		}
-		nonzeroCheckGatherFieldType(m, t.Elem(), t, loft, *nft.List)
+		nonzeroCheckGatherFieldType(m, t.Elem(), t, loft, *nft.ListElem)
+	case kindArray:
+		var loft *fieldType
+		if oft != nil {
+			loft = oft.ListElem
+		}
+		nonzeroCheckGatherFieldType(m, t.Elem(), t, loft, *nft.ListElem)
 	}
 }
 
@@ -245,7 +251,7 @@ func checkNonzeroFields(m map[reflect.Type]*nonzeroCheckType, t reflect.Type, ne
 	// Descend into referenced types.
 	for _, f := range fields {
 		switch f.Type.Kind {
-		case kindMap, kindSlice, kindStruct:
+		case kindMap, kindSlice, kindStruct, kindArray:
 			ft := f.structField.Type
 			if err := checkNonzeroFieldType(m, f.Type, ft, rv.FieldByIndex(f.structField.Index)); err != nil {
 				return err
@@ -307,11 +313,18 @@ func checkNonzeroFieldType(m map[reflect.Type]*nonzeroCheckType, ft fieldType, t
 		et := t.Elem()
 		n := rv.Len()
 		for i := 0; i < n; i++ {
-			if err := checkNonzeroFieldType(m, *ft.List, et, rv.Index(i)); err != nil {
+			if err := checkNonzeroFieldType(m, *ft.ListElem, et, rv.Index(i)); err != nil {
 				return err
 			}
 		}
-
+	case kindArray:
+		et := t.Elem()
+		n := ft.ArrayLength
+		for i := 0; i < n; i++ {
+			if err := checkNonzeroFieldType(m, *ft.ListElem, et, rv.Index(i)); err != nil {
+				return err
+			}
+		}
 	case kindStruct:
 		ct := m[t]
 		if err := checkNonzeroFields(m, t, ct.newlyNonzero, ct.fields, rv); err != nil {

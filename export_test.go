@@ -28,11 +28,12 @@ func TestExport(t *testing.T) {
 		Slice2 []struct {
 			Name string
 		}
-		Map     map[string]int
-		Map2    map[string]struct{ Name string }
-		Float32 float32
-		Float64 float64
-		BM      bm
+		Map         map[string]int
+		Map2        map[string]struct{ Name string }
+		Float32     float32
+		Float64     float64
+		Coordinates [2]float32
+		BM          bm
 	}
 
 	const path = "testdata/tmp.export.db"
@@ -71,6 +72,7 @@ func TestExport(t *testing.T) {
 			map[string]struct{ Name string }{"x": {"y"}, "y": {""}},
 			1.23,
 			-100.34,
+			[2]float32{6.062495, 53.063354},
 			bm{"test"},
 		}
 		err = tx.Insert(&u3)
@@ -91,6 +93,7 @@ func TestExport(t *testing.T) {
 			map[string]struct{ Name string }{},
 			33.44,
 			101,
+			[2]float32{0, 0},
 			bm{""},
 		}
 		err = tx.Insert(&u4)
@@ -111,7 +114,7 @@ func TestExport(t *testing.T) {
 		tcompare(t, err, xids2, ids2, "keys")
 
 		var fields []string
-		expFields := []string{"ID", "String", "Time", "Bool", "Boolptr", "Uint", "Bytes", "Struct", "Slice", "Slice2", "Map", "Map2", "Float32", "Float64", "BM"}
+		expFields := []string{"ID", "String", "Time", "Bool", "Boolptr", "Uint", "Bytes", "Struct", "Slice", "Slice2", "Map", "Map2", "Float32", "Float64", "Coordinates", "BM"}
 		xids2 = nil
 		err = tx.Records("User2", &fields, func(v map[string]any) error {
 			xids2 = append(xids2, v["ID"].(int))

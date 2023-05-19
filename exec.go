@@ -444,7 +444,7 @@ func (e *exec[T]) checkFilter(p *pair[T]) (rok bool, rerr error) {
 			n := frv.Len()
 			var have bool
 			for i := 0; i < n; i++ {
-				if f.field.Type.List.equal(frv.Index(i), f.rvalue) {
+				if f.field.Type.ListElem.equal(frv.Index(i), f.rvalue) {
 					have = true
 					break
 				}

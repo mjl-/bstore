@@ -51,6 +51,8 @@ more space than the single bit and are stored consecutively after the fieldmap:
     the zero value marked in the fieldmap.
   - Slices use a uvarint for the number of elements, followed by a bitmap for
     nonzero values, followed by the encoded nonzero elements.
+  - Arrays (fixed length) start with a bitmap for nonzero values, followed by
+    the encoded nonzero elements.
   - Maps use a uvariant for the number of key/value pairs, followed by a
     fieldmap for the values (the keys are always present), followed by each
     pair: key (always present), value (only if nonzero); key, value; etc.

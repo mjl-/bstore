@@ -742,7 +742,7 @@ func (q *Query[T]) FilterIn(fieldName string, value any) *Query[T] {
 		q.errorf("%w: field for FilterIn must be a slice", ErrParam)
 		return q
 	}
-	et := ff.Type.List
+	et := ff.Type.ListElem
 	if et.Ptr {
 		q.errorf("%w: cannot compare element pointer values", ErrParam)
 		return q

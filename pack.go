@@ -224,15 +224,32 @@ func (ft fieldType) pack(p *packer, rv reflect.Value) {
 		p.PushFieldmap(n)
 		for i := 0; i < n; i++ {
 			nrv := rv.Index(i)
-			if ft.List.isZero(nrv) {
+			if ft.ListElem.isZero(nrv) {
 				p.Field(false)
 				// Pretend to pack to get the nonzero checks of the element.
 				if nrv.IsValid() && (nrv.Kind() != reflect.Ptr || !nrv.IsNil()) {
-					ft.List.pack(&packer{b: &bytes.Buffer{}}, nrv)
+					ft.ListElem.pack(&packer{b: &bytes.Buffer{}}, nrv)
 				}
 			} else {
 				p.Field(true)
-				ft.List.pack(p, nrv)
+				ft.ListElem.pack(p, nrv)
+			}
+		}
+		p.PopFieldmap()
+	case kindArray:
+		n := ft.ArrayLength
+		p.PushFieldmap(n)
+		for i := 0; i < n; i++ {
+			nrv := rv.Index(i)
+			if ft.ListElem.isZero(nrv) {
+				p.Field(false)
+				// Pretend to pack to get the nonzero checks of the element.
+				if nrv.IsValid() && (nrv.Kind() != reflect.Ptr || !nrv.IsNil()) {
+					ft.ListElem.pack(&packer{b: &bytes.Buffer{}}, nrv)
+				}
+			} else {
+				p.Field(true)
+				ft.ListElem.pack(p, nrv)
 			}
 		}
 		p.PopFieldmap()

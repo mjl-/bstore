@@ -740,6 +740,7 @@ func TestQueryCompare(t *testing.T) {
 		Slice  []string
 		Struct Struct
 		Map    map[string]int
+		Array  [2]string
 	}
 
 	const path = "testdata/tmp.querycompare.db"
@@ -748,9 +749,9 @@ func TestQueryCompare(t *testing.T) {
 	tcheck(t, err, "open")
 	defer tclose(t, db)
 
-	u0 := User{0, true, []byte("a"), 10, -45.2, nil, Struct{0}, nil}
-	u1 := User{0, false, []byte("zzz"), 100, -12.2, nil, Struct{0}, nil}
-	u2 := User{0, false, []byte("aa"), 10000, 100.2, nil, Struct{0}, nil}
+	u0 := User{0, true, []byte("a"), 10, -45.2, nil, Struct{0}, nil, [2]string{"", ""}}
+	u1 := User{0, false, []byte("zzz"), 100, -12.2, nil, Struct{0}, nil, [2]string{"x", "y"}}
+	u2 := User{0, false, []byte("aa"), 10000, 100.2, nil, Struct{0}, nil, [2]string{"string", "other"}}
 	err = db.Insert(ctxbg, &u0, &u1, &u2)
 	tcheck(t, err, "insert users")
 
@@ -777,6 +778,12 @@ func TestQueryCompare(t *testing.T) {
 
 	users, err = QueryDB[User](ctxbg, db).FilterGreater("Float", float32(50.0)).List()
 	tcompare(t, err, users, []User{u2}, "compare float")
+
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Array", [2]string{"", ""}).List()
+	tcompare(t, err, users, []User{u0}, "compare array")
+
+	users, err = QueryDB[User](ctxbg, db).FilterEqual("Array", [2]string{"string", "other"}).List()
+	tcompare(t, err, users, []User{u2}, "compare array")
 
 	err = QueryDB[User](ctxbg, db).FilterGreater("Struct", Struct{1}).Err()
 	tneed(t, err, ErrParam, "comparison on struct")
@@ -805,11 +812,17 @@ func TestDeepEqual(t *testing.T) {
 		private string
 	}
 
+	type Elem struct {
+		S       string
+		private string
+	}
+
 	type User struct {
 		ID     int
 		Struct Struct
 		Slice  []Struct
 		Map    map[string]Struct
+		Array  [2]Elem
 
 		private string // Changing this field should not cause an update.
 	}
@@ -833,6 +846,7 @@ func TestDeepEqual(t *testing.T) {
 		Struct:  Struct{"a", ""},
 		Slice:   []Struct{{"a", ""}},
 		Map:     map[string]Struct{"key": {"a", ""}},
+		Array:   [2]Elem{{"X", "private"}, {"Y", "private"}},
 		private: "",
 	}
 	err = db.Insert(ctxbg, &u0)
@@ -843,6 +857,7 @@ func TestDeepEqual(t *testing.T) {
 	u0.Struct.private = "modified"
 	u0.Slice[0].private = "modified"
 	u0.Map["key"] = Struct{"a", "modified"}
+	u0.Array[1].private = "modified"
 	err = db.Update(ctxbg, &u0)
 	tcheck(t, err, "update")
 	updateStats()
@@ -856,13 +871,16 @@ func TestDeepEqual(t *testing.T) {
 	tcompare(t, nil, delta.Records.Put, uint(0), "puts after update with only private field changed")
 
 	n, err = QueryDB[User](ctxbg, db).FilterEqual("Struct", Struct{"a", "other"}).Count()
-	tcompare(t, err, n, 1, "filterequal with other private field")
+	tcompare(t, err, n, 1, "filterequal with struct and other private field")
 
 	n, err = QueryDB[User](ctxbg, db).FilterEqual("Slice", []Struct{{"a", "other"}}, []Struct{{"a", "other2"}}).Count()
-	tcompare(t, err, n, 1, "filterin with other private field")
+	tcompare(t, err, n, 1, "filterin with slice and other private field")
+
+	n, err = QueryDB[User](ctxbg, db).FilterEqual("Array", [2]Elem{{"X", "private"}, {"Y", "other"}}).Count()
+	tcompare(t, err, n, 1, "filterequal with array and other private field")
 
 	n, err = QueryDB[User](ctxbg, db).FilterNotEqual("Map", map[string]Struct{"key": {"a", "other"}}).Count()
-	tcompare(t, err, n, 0, "filternotequal with other private field")
+	tcompare(t, err, n, 0, "filternotequal with map and other private field")
 }
 
 // Check that we don't allow comparison/ordering on pointer fields.

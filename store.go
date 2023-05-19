@@ -209,9 +209,11 @@ const (
 	kindTime          kind = "time"
 	kindBinaryMarshal kind = "binarymarshal"
 	kindStruct        kind = "struct"
+	kindArray         kind = "array"
 )
 
-// in ondiskVersion1, the kinds were integers, starting at 1.
+// In ondiskVersion1, the kinds were integers, starting at 1.
+// Do not change the order. Add new values at the end.
 var kinds = []kind{
 	kindBytes,
 	kindBool,
@@ -233,6 +235,7 @@ var kinds = []kind{
 	kindTime,
 	kindBinaryMarshal,
 	kindStruct,
+	kindArray,
 }
 
 func makeKindsMap() map[string]kind {
@@ -249,9 +252,10 @@ type fieldType struct {
 	Ptr  bool `json:",omitempty"` // If type is a pointer.
 	Kind kind // Type with possible Ptr deferenced.
 
-	MapKey   *fieldType `json:",omitempty"`
-	MapValue *fieldType `json:",omitempty"` // For kindMap.
-	List     *fieldType `json:",omitempty"` // For kindSlice.
+	MapKey      *fieldType `json:",omitempty"`
+	MapValue    *fieldType `json:",omitempty"`     // For kindMap.
+	ListElem    *fieldType `json:"List,omitempty"` // For kindSlice and kindArray. Named List in JSON for compatibility.
+	ArrayLength int        `json:",omitempty"`     // For kindArray.
 
 	// For kindStruct, the fields of the struct. Only set for the first use of the type
 	// within a registered type. Code dealing with fields should use structFields
@@ -501,6 +505,7 @@ var typeKinds = map[reflect.Kind]kind{
 	reflect.Map:     kindMap,
 	reflect.Slice:   kindSlice,
 	reflect.String:  kindString,
+	reflect.Array:   kindArray,
 }
 
 func typeKind(t reflect.Type) (kind, error) {

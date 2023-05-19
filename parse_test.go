@@ -41,6 +41,7 @@ func FuzzParse(f *testing.F) {
 		Map     map[string]struct{}
 		Map2    map[Mapkey]Mapvalue
 		Time    time.Time
+		Coords  [2]float64
 		BM      bm
 
 		Byteptr    *byte
@@ -58,6 +59,7 @@ func FuzzParse(f *testing.F) {
 		Mapptr     *map[string]struct{}
 		Map2ptr    *map[Mapkey]Mapvalue
 		Timeptr    *time.Time
+		CoordsPtr  *[2]float64
 		BMptr      *bm
 	}
 	t := reflect.TypeOf(User{})

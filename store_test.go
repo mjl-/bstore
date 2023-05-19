@@ -46,6 +46,24 @@ func tclose(t *testing.T, db *DB) {
 	tcheck(t, err, "close")
 }
 
+// pkclone returns a pointer to a new zero struct value of the
+// pointer-dereferenced type of struct pointer vp, but with the first field
+// copied into the new value.
+// Useful for a "Get" after an "Insert", and to compare for equality.
+func pkclone(vp any) any {
+	rv := reflect.ValueOf(vp).Elem()
+	if rv.Kind() != reflect.Struct {
+		panic("pkclone: v must be a struct")
+	}
+	nvp := reflect.New(rv.Type())
+	nvp.Elem().Field(0).Set(rv.Field(0))
+	return nvp.Interface()
+}
+
+func ptr[T any](v T) *T {
+	return &v
+}
+
 var withReopen bool
 
 func TestMain(m *testing.M) {
@@ -178,6 +196,7 @@ func TestStore(t *testing.T) {
 		Map     map[string]struct{}
 		Map2    map[Mapkey]Mapvalue
 		Time    time.Time
+		Array   [2]int
 
 		Byteptr    *byte
 		Int8ptr    *int8
@@ -194,6 +213,7 @@ func TestStore(t *testing.T) {
 		Mapptr     *map[string]struct{}
 		Map2ptr    *map[Mapkey]Mapvalue
 		Timeptr    *time.Time
+		Arrayptr   *[2]int
 
 		Ignore  int `bstore:"-"`
 		private int
@@ -258,6 +278,7 @@ func TestStore(t *testing.T) {
 				{2, "a"}: {nil, nil},
 				{3, "d"}: {[]byte("hi"), &now},
 			},
+			Array: [2]int{-1, 1},
 		}
 		err = tx.Insert(&u)
 		tcheck(t, err, "insert user")
@@ -285,6 +306,7 @@ func TestStore(t *testing.T) {
 			Mapptr:     &u.Map,
 			Map2ptr:    &u.Map2,
 			Timeptr:    &u.Time,
+			Arrayptr:   &u.Array,
 		}
 		err = tx.Insert(&uptrs)
 		tcheck(t, err, "inserting user with pointers")
@@ -1394,6 +1416,7 @@ func TestNonzero(t *testing.T) {
 	tnonzero(ErrZero, &Nonzero[[]byte]{0, nil})
 	tnonzero(ErrZero, &Nonzero[[]Nz]{0, []Nz{{0}}})
 	tnonzero(ErrZero, &Nonzero[[]Nz]{0, []Nz(nil)})
+	tnonzero(ErrZero, &Nonzero[[2]int]{0, [...]int{0, 0}})
 	tnonzero(nil, &Nonzero[[]Nz]{0, []Nz{}})
 	tnonzero(nil, &Nonzero[[]Nz]{0, []Nz{{1}}})
 	tnonzero(nil, &Nonzero[[]*Nz]{0, []*Nz{nil}})
@@ -1410,6 +1433,7 @@ func TestNonzero(t *testing.T) {
 	tnonzero(nil, &Nonzero[map[Nz]*Nz]{0, map[Nz]*Nz{{1}: nil}})
 	tnonzero(ErrZero, &Nonzero[map[Nz]*Nz]{0, map[Nz]*Nz{{1}: {0}}})
 	tnonzero(nil, &Nonzero[map[Nz]*Nz]{0, map[Nz]*Nz{{1}: nil}})
+	tnonzero(nil, &Nonzero[[2]int]{0, [...]int{0, 1}})
 }
 
 func TestRefIndexConflict(t *testing.T) {
@@ -1470,6 +1494,7 @@ func TestChangeNonzero(t *testing.T) {
 		Struct Sub
 		Map    map[Key]Value
 		Slice  []Elem
+		Array  [2]Elem
 	}
 
 	type Sub2 struct {
@@ -1492,6 +1517,7 @@ func TestChangeNonzero(t *testing.T) {
 		Struct Sub2            `bstore:"nonzero"`
 		Map    map[Key2]Value2 `bstore:"nonzero"`
 		Slice  []Elem2         `bstore:"nonzero"`
+		Array  [2]Elem2        `bstore:"nonzero"`
 	}
 
 	clone := func(v User2) User {
@@ -1535,8 +1561,8 @@ func TestChangeNonzero(t *testing.T) {
 		tneed(t, err, ErrZero, "reopen with invalid nonzero values")
 	}
 
-	good := User{0, "a", 1, []byte("hi"), Sub{"a"}, map[Key]Value{{1}: {[]byte("a")}}, []Elem{{1}}}
-	good2 := User2{0, "a", 1, []byte("hi"), Sub2{"a"}, map[Key2]Value2{{1}: {[]byte("a")}}, []Elem2{{1}}}
+	good := User{0, "a", 1, []byte("hi"), Sub{"a"}, map[Key]Value{{1}: {[]byte("a")}}, []Elem{{1}}, [2]Elem{{2}, {3}}}
+	good2 := User2{0, "a", 1, []byte("hi"), Sub2{"a"}, map[Key2]Value2{{1}: {[]byte("a")}}, []Elem2{{1}}, [2]Elem2{{1}, {2}}}
 
 	badstr := good2
 	badstr.Name = ""
@@ -1565,6 +1591,14 @@ func TestChangeNonzero(t *testing.T) {
 	badslice := good2
 	badslice.Slice = []Elem2{{0}}
 	testValue(good, badslice)
+
+	badarray := good2
+	badarray.Array = [2]Elem2{{0}, {0}}
+	testValue(good, badarray)
+
+	badarray = good2
+	badarray.Array = [2]Elem2{{1}, {0}}
+	testValue(good, badarray)
 }
 
 // When changing from ptr to nonptr, nils become zero values, and this may
@@ -1613,6 +1647,8 @@ func TestChangeNonzeroPtr(t *testing.T) {
 	tchangenonzeroptr(nil, &X[map[int]*StructStructptr]{0, map[int]*StructStructptr{0: nil}}, X[map[int]StructStructptr]{})
 	tchangenonzeroptr(ErrIncompatible, &X[[]*Struct]{0, []*Struct{nil}}, X[[]Struct]{})
 	tchangenonzeroptr(nil, &X[[]*StructStructptr]{0, []*StructStructptr{nil}}, X[[]StructStructptr]{})
+	tchangenonzeroptr(ErrIncompatible, &X[[1]*Struct]{0, [1]*Struct{nil}}, X[[1]Struct]{})
+	tchangenonzeroptr(nil, &X[[1]*StructStructptr]{0, [1]*StructStructptr{nil}}, X[[1]StructStructptr]{})
 }
 
 func TestNestedIndex(t *testing.T) {
@@ -1723,56 +1759,68 @@ func TestDropReferenced(t *testing.T) {
 	tneed(t, err, ErrType, "reading removed type")
 }
 
+func topenCompatible[T any](t *testing.T, base T, expErr error, valueptrs ...any) {
+	t.Helper()
+
+	const path = "testdata/tmp.compatible.db"
+
+	for _, vp := range valueptrs {
+		os.Remove(path)
+
+		db, err := topen(t, path, nil, base)
+		tcheck(t, err, "open")
+		err = db.Insert(ctxbg, &base)
+		tcheck(t, err, "insert base")
+		tclose(t, db)
+
+		v := reflect.ValueOf(vp).Elem().Interface()
+		db, err = topen(t, path, nil, v)
+		if expErr == nil {
+			tcheck(t, err, "open with compatible type")
+			err = db.Insert(ctxbg, vp)
+			tcheck(t, err, "insert compatible value")
+			nvp := pkclone(vp)
+			err = db.Get(ctxbg, nvp)
+			tcompare(t, err, nvp, vp, "get compatible value")
+			tclose(t, db)
+		} else {
+			tneed(t, err, expErr, "open")
+		}
+	}
+}
+
 func TestCompatible(t *testing.T) {
 	type Base[T any] struct {
 		ID    int `bstore:"typename T"`
 		Other T
 	}
 
-	const path = "testdata/tmp.compatible.db"
+	topenCompatible(t, Base[int64]{}, ErrIncompatible, &Base[int]{}, &Base[uint64]{})
+	topenCompatible(t, Base[int32]{}, nil, &Base[int]{}, &Base[int64]{})
+	topenCompatible(t, Base[int32]{}, ErrIncompatible, &Base[uint32]{}, &Base[int16]{})
+	topenCompatible(t, Base[int16]{}, nil, &Base[int]{}, &Base[int64]{})
+	topenCompatible(t, Base[int16]{}, ErrIncompatible, &Base[uint16]{}, &Base[int8]{})
+	topenCompatible(t, Base[int8]{}, nil, &Base[int]{}, &Base[int16]{})
+	topenCompatible(t, Base[int8]{}, ErrIncompatible, &Base[uint8]{}, &Base[string]{})
 
-	topen := func(base any, expErr error, values ...any) {
-		t.Helper()
+	topenCompatible(t, Base[uint64]{}, ErrIncompatible, &Base[uint]{}, &Base[int64]{})
+	topenCompatible(t, Base[uint32]{}, nil, &Base[uint]{}, &Base[uint64]{})
+	topenCompatible(t, Base[uint32]{}, ErrIncompatible, &Base[int32]{}, &Base[uint16]{})
+	topenCompatible(t, Base[uint16]{}, nil, &Base[uint]{}, &Base[uint64]{})
+	topenCompatible(t, Base[uint16]{}, ErrIncompatible, &Base[int16]{}, &Base[uint8]{})
+	topenCompatible(t, Base[uint8]{}, nil, &Base[uint]{}, &Base[uint16]{})
+	topenCompatible(t, Base[uint8]{}, ErrIncompatible, &Base[int8]{}, &Base[string]{})
 
-		for _, v := range values {
-			os.Remove(path)
+	topenCompatible(t, Base[map[int]int16]{}, nil, &Base[map[int64]int32]{})
+	topenCompatible(t, Base[map[string]struct{}]{}, ErrIncompatible, &Base[string]{}, &Base[map[int]struct{}]{}, &Base[map[string]string]{})
+	topenCompatible(t, Base[[]int]{}, nil, &Base[[]int32]{})
+	topenCompatible(t, Base[[]int]{}, ErrIncompatible, &Base[string]{}, &Base[[]string]{})
+	topenCompatible(t, Base[struct{ Field int }]{}, nil, &Base[struct{ Field int64 }]{})
+	topenCompatible(t, Base[struct{ Field int }]{}, ErrIncompatible, &Base[string]{}, &Base[struct{ Field string }]{})
 
-			db, err := topen(t, path, nil, base)
-			tcheck(t, err, "open")
-			tclose(t, db)
-
-			db, err = topen(t, path, nil, v)
-			if expErr == nil {
-				tcheck(t, err, "open")
-				tclose(t, db)
-			} else {
-				tneed(t, err, expErr, "open")
-			}
-		}
-	}
-
-	topen(Base[int64]{}, ErrIncompatible, Base[int]{}, Base[uint64]{})
-	topen(Base[int32]{}, nil, Base[int]{}, Base[int64]{})
-	topen(Base[int32]{}, ErrIncompatible, Base[uint32]{}, Base[int16]{})
-	topen(Base[int16]{}, nil, Base[int]{}, Base[int64]{})
-	topen(Base[int16]{}, ErrIncompatible, Base[uint16]{}, Base[int8]{})
-	topen(Base[int8]{}, nil, Base[int]{}, Base[int16]{})
-	topen(Base[int8]{}, ErrIncompatible, Base[uint8]{}, Base[string]{})
-
-	topen(Base[uint64]{}, ErrIncompatible, Base[uint]{}, Base[int64]{})
-	topen(Base[uint32]{}, nil, Base[uint]{}, Base[uint64]{})
-	topen(Base[uint32]{}, ErrIncompatible, Base[int32]{}, Base[uint16]{})
-	topen(Base[uint16]{}, nil, Base[uint]{}, Base[uint64]{})
-	topen(Base[uint16]{}, ErrIncompatible, Base[int16]{}, Base[uint8]{})
-	topen(Base[uint8]{}, nil, Base[uint]{}, Base[uint16]{})
-	topen(Base[uint8]{}, ErrIncompatible, Base[int8]{}, Base[string]{})
-
-	topen(Base[map[int]int16]{}, nil, Base[map[int64]int32]{})
-	topen(Base[map[string]struct{}]{}, ErrIncompatible, Base[string]{}, Base[map[int]struct{}]{}, Base[map[string]string]{})
-	topen(Base[[]int]{}, nil, Base[[]int32]{})
-	topen(Base[[]int]{}, ErrIncompatible, Base[string]{}, Base[[]string]{})
-	topen(Base[struct{ Field int }]{}, nil, Base[struct{ Field int64 }]{})
-	topen(Base[struct{ Field int }]{}, ErrIncompatible, Base[string]{}, Base[struct{ Field string }]{})
+	topenCompatible(t, Base[[]string]{}, ErrIncompatible, &Base[[2]string]{})
+	topenCompatible(t, Base[[2]string]{}, ErrIncompatible, &Base[[]string]{})
+	topenCompatible(t, Base[[2]int]{}, nil, &Base[[2]int32]{}, &Base[[2]int64]{})
 }
 
 func TestFieldRemoveAdd(t *testing.T) {
@@ -1814,6 +1862,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 		Map2    map[Mapkey]Mapvalue
 		Map3    map[Mapkey]*Mapvalue
 		Time    time.Time
+		Array   [2]int
 
 		Byteptr    *byte
 		Int8ptr    *int8
@@ -1831,6 +1880,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 		Map2ptr    *map[Mapkey]Mapvalue
 		Map3ptr    *map[Mapkey]*Mapvalue
 		Timeptr    *time.Time
+		Arrayptr   *[2]int
 	}
 
 	type Empty struct {
@@ -1872,6 +1922,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 				{2, "a"}: {nil, nil},
 				{3, "d"}: {[]byte("hi"), &now},
 			},
+			Array: [2]int{1, 2},
 		}
 		err = tx.Insert(&u0)
 		tcheck(t, err, "insert u0")
@@ -1893,6 +1944,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 			Map2ptr:    &u0.Map2,
 			Map3ptr:    &u0.Map3,
 			Timeptr:    &u0.Time,
+			Arrayptr:   &u0.Array,
 		}
 		err = tx.Insert(&u1)
 		tcheck(t, err, "insert u1")
@@ -2224,6 +2276,7 @@ func TestChangePtr(t *testing.T) {
 		Age     int
 		Name    string
 		Created time.Time
+		Array   [2]string
 		BM      bm
 	}
 	type User2 struct {
@@ -2231,6 +2284,7 @@ func TestChangePtr(t *testing.T) {
 		Age     *int
 		Name    *string
 		Created *time.Time
+		Array   *[2]string
 		BM      *bm
 	}
 
@@ -2239,7 +2293,7 @@ func TestChangePtr(t *testing.T) {
 	db, err := topen(t, path, nil, User{})
 	tcheck(t, err, "open")
 
-	u0 := User{0, 10, "test", time.Now().Round(0), bm{"test"}}
+	u0 := User{0, 10, "test", time.Now().Round(0), [2]string{"a", "b"}, bm{"test"}}
 	u1 := User{}
 
 	err = db.Insert(ctxbg, &u0, &u1)
@@ -2260,14 +2314,14 @@ func TestChangePtr(t *testing.T) {
 	err = db.Get(ctxbg, &x1)
 	tcheck(t, err, "get")
 
-	if x0.Age == nil || x0.Name == nil || x0.Created == nil || x0.BM == nil {
+	if x0.Age == nil || x0.Name == nil || x0.Created == nil || x0.Array == nil || x0.BM == nil {
 		t.Fatalf("unexpected nil values in x0 %v vs u0 %v", x0, u0)
 	}
-	if *x0.Age != u0.Age || *x0.Name != u0.Name || !x0.Created.Equal(u0.Created) || *x0.BM != u0.BM {
+	if *x0.Age != u0.Age || *x0.Name != u0.Name || !x0.Created.Equal(u0.Created) || *x0.Array != u0.Array || *x0.BM != u0.BM {
 		t.Fatalf("unexpected values in x0 %v vs u0 %v", x0, u0)
 	}
 
-	if x1.Age != nil || x1.Name != nil || x1.Created != nil || x1.BM != nil {
+	if x1.Age != nil || x1.Name != nil || x1.Created != nil || x1.Array != nil || x1.BM != nil {
 		t.Fatalf("unexpected non-nil values in x1 %v vs u1 %v", x1, u1)
 	}
 
@@ -2280,12 +2334,12 @@ func TestChangePtr(t *testing.T) {
 	err = db.Get(ctxbg, &u0, &u1)
 	tcheck(t, err, "get")
 
-	if u0.Age != *x0.Age || u0.Name != *x0.Name || !u0.Created.Equal(*x0.Created) || u0.BM != *x0.BM {
+	if u0.Age != *x0.Age || u0.Name != *x0.Name || !u0.Created.Equal(*x0.Created) || u0.Array != *x0.Array || u0.BM != *x0.BM {
 		t.Fatalf("unexpected values in u0 %v vs x0 %v", u0, x0)
 	}
 	var zerotime time.Time
 	var zerobm bm
-	if u1.Age != 0 || u1.Name != "" || u1.Created != zerotime || u1.BM != zerobm {
+	if u1.Age != 0 || u1.Name != "" || u1.Created != zerotime || u1.Array != [2]string{"", ""} || u1.BM != zerobm {
 		t.Fatalf("unexpected nonzero values in u1 %v vs x1 %v", u1, x1)
 	}
 }
@@ -3238,10 +3292,6 @@ type CyclicPtrD1 struct {
 	A *CyclicPtrA1
 }
 
-func ptr[T any](v T) *T {
-	return &v
-}
-
 // Test propagation of need to check for nonzero including cyclic type on pointer types.
 func TestPropagateChangePtrNonzero(t *testing.T) {
 	const path = "testdata/tmp.propagatechangeptrnonzero.db"
@@ -3387,18 +3437,6 @@ func TestOndiskV2B(t *testing.T) {
 	tcompare(t, err, s0.Cyclic.ID, c0.Cyclic.ID, "check cyclic.id")
 
 	tclose(t, db)
-}
-
-func TestPtrPtr(t *testing.T) {
-	type X struct {
-		ID          int
-		Unsupported **string
-	}
-
-	const path = "testdata/tmp.ptrptr.db"
-	os.Remove(path)
-	_, err := topen(t, path, nil, X{})
-	tneed(t, err, ErrType, "open")
 }
 
 func TestSchemaCheck(t *testing.T) {
