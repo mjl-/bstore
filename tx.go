@@ -85,7 +85,7 @@ func (tx *Tx) updateIndices(tv *typeVersion, pk []byte, ov, v reflect.Value) err
 					}
 				}
 			} else if ofv.Interface() != nfv.Interface() {
-				// note: checking the interface values is enough, we only allow comparable types as index fields.
+				// note: checking the interface values is enough.
 				return true
 			}
 		}
@@ -118,7 +118,7 @@ func (tx *Tx) updateIndices(tv *typeVersion, pk []byte, ov, v reflect.Value) err
 				if sanityChecks {
 					tx.stats.Index.Get++
 					if ib.Get(ik.full) == nil {
-						return fmt.Errorf("internal error: key missing from index")
+						return fmt.Errorf("%w: key missing from index", ErrStore)
 					}
 				}
 				if err := ib.Delete(ik.full); err != nil {

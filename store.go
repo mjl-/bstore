@@ -18,11 +18,12 @@ import (
 
 /*
 - todo: should thoroughly review guarantees, where some of the bstore struct tags are allowed (e.g. top-level fields vs deeper struct fields), check that all features work well when combined (cyclic types, embed structs, default values, nonzero checks, type equality, zero values with fieldmap, skipping values (hidden due to later typeversions) and having different type versions), write more extensive tests.
-- write tests for invalid (meta)data inside the boltdb buckets (not for invalid boltdb files). we should detect the error properly, give a reasonable message. we shouldn't panic (nil deref, out of bounds index, consume too much memory). typeVersions, records, indices.
+- todo: write tests for invalid (meta)data inside the boltdb buckets (not for invalid boltdb files). we should detect the error properly, give a reasonable message. we shouldn't panic (nil deref, out of bounds index, consume too much memory). typeVersions, records, indices.
+- todo: add benchmarks. is there a standard dataset databases use for benchmarking?
+- todo optimize: profile and see if we can optimize for some quick wins.
 - todo: should we add a way for ad-hoc data manipulation? e.g. with sql-like queries, e.g. update, delete, insert; and export results of queries to csv.
 - todo: should we have a function that returns records in a map? eg Map() that is like List() but maps a key to T (too bad we cannot have a type for the key!).
 - todo: better error messages (ordering of description & error; mention typename, fields (path), field types and offending value & type more often)
-- todo: support arrays (fixed sized)
 - todo: should we add types for dates and numerics?
 - todo: struct tag for enums? where we check if the values match.
 */
@@ -277,14 +278,6 @@ type fieldType struct {
 	// Fields after taking cyclic types into account. Set when registering/loading a
 	// type. Not stored on disk because of potential cyclic data.
 	structFields []field
-}
-
-func (ft fieldType) String() string {
-	s := string(ft.Kind)
-	if ft.Ptr {
-		return s + "ptr"
-	}
-	return s
 }
 
 // Options configure how a database should be opened or initialized.

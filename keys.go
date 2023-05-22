@@ -10,7 +10,7 @@ import (
 
 /*
 The records buckets map a primary key to the record data. The primary key is of
-a form that we can scan/range over. So fixed with for integers. For strings and
+a form that we can scan/range over. So fixed width for integers. For strings and
 bytes they are just their byte representation. We do not store the PK in the
 record data. This means we cannot store a time.Time as primary key, because we
 cannot have the timezone encoded for comparison reasons.

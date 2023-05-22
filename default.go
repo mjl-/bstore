@@ -55,7 +55,7 @@ func (f field) applyDefault(rv reflect.Value) error {
 // only for recursing. we do not support recursing into maps because it would
 // involve more work making values settable. and how sensible is it anyway?
 func (ft fieldType) applyDefault(rv reflect.Value) error {
-	if ft.Ptr && (rv.IsZero() || rv.IsNil()) {
+	if ft.Ptr && rv.IsZero() {
 		return nil
 	} else if ft.Ptr {
 		rv = rv.Elem()

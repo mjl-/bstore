@@ -5,7 +5,6 @@ import (
 	"errors"
 	"math"
 	"os"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -41,16 +40,10 @@ func TestQuery(t *testing.T) {
 	}
 
 	x0, err := q().FilterID(u0.ID).Get()
-	tcheck(t, err, "get x0")
-	if !reflect.DeepEqual(u0, x0) {
-		t.Fatalf("u0 != x0: %v != %v", u0, x0)
-	}
+	tcompare(t, err, x0, u0, "get x0")
 
 	x0, err = q().FilterID(u0.ID).SortAsc("ID").Get()
-	tcheck(t, err, "get x0")
-	if !reflect.DeepEqual(u0, x0) {
-		t.Fatalf("u0 != x0: %v != %v", u0, x0)
-	}
+	tcompare(t, err, x0, u0, "get x0")
 
 	_, err = q().FilterID(u0.ID + 999).Get()
 	tneed(t, err, ErrAbsent, "get for nonexistent record")
@@ -59,10 +52,7 @@ func TestQuery(t *testing.T) {
 	tneed(t, err, ErrMultiple, "get with multiple selected records")
 
 	x0, err = q().FilterNonzero(User{ID: u0.ID}).Get()
-	tcheck(t, err, "get x0")
-	if !reflect.DeepEqual(u0, x0) {
-		t.Fatalf("u0 != x0: %v != %v", u0, x0)
-	}
+	tcompare(t, err, x0, u0, "get x0")
 
 	lexp := []User{u0, u1}
 	l, err := q().List()
@@ -72,16 +62,10 @@ func TestQuery(t *testing.T) {
 	tcompare(t, err, l, []User{}, "empty selection returns empty list, not nil")
 
 	x0, err = q().FilterEqual("ID", u0.ID).Get()
-	tcheck(t, err, "get x0")
-	if !reflect.DeepEqual(u0, x0) {
-		t.Fatalf("u0 != x0: %v != %v", u0, x0)
-	}
+	tcompare(t, err, x0, u0, "get x0")
 
 	x1, err := q().FilterNotEqual("ID", u0.ID).Get()
-	tcheck(t, err, "get not u0")
-	if !reflect.DeepEqual(u1, x1) {
-		t.Fatalf("u1 != x1: %v != %v", u1, x1)
-	}
+	tcompare(t, err, x1, u1, "get not u0")
 
 	n, err := q().FilterEqual("ID", u0.ID, u1.ID).Count()
 	tcompare(t, err, n, 2, "count multiple")
@@ -99,10 +83,7 @@ func TestQuery(t *testing.T) {
 		t.Helper()
 		x := User{ID: id}
 		err := db.Get(ctxbg, &x)
-		tcheck(t, err, "get user")
-		if !reflect.DeepEqual(x, exp) {
-			t.Fatalf("compare, got %v, expect %v", x, exp)
-		}
+		tcompare(t, err, x, exp, "get user")
 	}
 
 	var updated []User
@@ -438,9 +419,9 @@ func TestQueryTime(t *testing.T) {
 	// Strip monotonic time part for comparison below.
 	now = now.Round(0)
 	err = db.Get(ctxbg, &u0)
-	tcheck(t, err, "get u0")
+	tcompare(t, err, u0, User{u0.ID, "mjl", 0, now}, "get u0")
 	err = db.Get(ctxbg, &u1)
-	tcheck(t, err, "get u1")
+	tcompare(t, err, u1, User{u1.ID, "gopher", 0, u1.Time}, "get u1")
 
 	q := func() *Query[User] {
 		return QueryDB[User](ctxbg, db)

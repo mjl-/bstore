@@ -42,13 +42,13 @@ func TestIntwidth(t *testing.T) {
 	err = db.Insert(ctxbg, &u0)
 	tcheck(t, err, "insert user")
 	err = db.Get(ctxbg, &u0)
-	tcheck(t, err, "get user")
+	tcompare(t, err, u0, User{math.MinInt32, 1}, "get user")
 
 	u1 := User{math.MaxInt32, 1}
 	err = db.Insert(ctxbg, &u1)
 	tcheck(t, err, "insert user")
 	err = db.Get(ctxbg, &u1)
-	tcheck(t, err, "get user")
+	tcompare(t, err, u1, User{math.MaxInt32, 1}, "get user")
 
 	err = db.Insert(ctxbg, &User2{math.MaxUint32 + 1, 1})
 	tneed(t, err, ErrParam, "out of range")
@@ -63,5 +63,5 @@ func TestIntwidth(t *testing.T) {
 	err = db.Insert(ctxbg, &u2)
 	tcheck(t, err, "insert user")
 	err = db.Get(ctxbg, &u2)
-	tcheck(t, err, "get user")
+	tcompare(t, err, u2, User2{math.MaxUint32, 1}, "get user")
 }

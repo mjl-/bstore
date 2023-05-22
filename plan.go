@@ -103,8 +103,8 @@ indices:
 			}
 		}
 		// Calculate all keys that we need to retrieve from the index.
-		// todo optimization: if there is a sort involving these fields, we could do the sorting before fetching data.
-		// todo optimization: we can generate the keys on demand, will help when limit is in use: we are not generating all keys.
+		// todo optimize: if there is a sort involving these fields, we could do the sorting before fetching data.
+		// todo optimize: we can generate the keys on demand, will help when limit is in use: we are not generating all keys.
 		var keys [][]byte
 		var skipFilters []*filter[T] // Filters to remove from the full list because they are handled by quering the index.
 		for i, f := range idx.Fields {
@@ -251,7 +251,7 @@ indices:
 			}
 
 			// See if it can be used for ordering.
-			// todo optimization: we could use multiple orders
+			// todo optimize: we could use multiple orders
 			if len(orders) > 0 && orders[0].field.Name == nf.Name {
 				order = &orders[0]
 				orders = orders[1:]

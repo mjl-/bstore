@@ -559,10 +559,10 @@ func compare(k kind, a, b reflect.Value) int {
 }
 
 func (e *exec[T]) sort() {
-	// todo: We should check whether we actually need to load values. We're just
-	// always it now for the time being because SortStableFunc isn't going to
-	// give us a *pair (even though it could because of the slice) so we
-	// couldn't set/cache the value T during sorting.
+	// todo: We should check whether we actually need to load values. We're
+	// always loading it for the time being because SortStableFunc isn't
+	// going to give us a *pair (even though it could because of the slice)
+	// so we couldn't set/cache the value T during sorting.
 	q := e.q
 
 	for i := range e.data {

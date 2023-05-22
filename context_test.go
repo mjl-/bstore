@@ -4,6 +4,9 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 func TestContext(t *testing.T) {
@@ -109,6 +112,16 @@ func TestContext(t *testing.T) {
 		return err
 	})
 	tneed(t, err, context.Canceled, "canceled tx query list")
+
+	// Open with context with timeout.
+	now := time.Now()
+	ctx, cancel = context.WithTimeout(ctxbg, 0)
+	defer cancel()
+	_, err = Open(ctx, path, nil, X{})
+	tneed(t, err, bolt.ErrTimeout, "open with context with exceeded deadline")
+	if time.Since(now) > time.Second {
+		t.Fatalf("timeout took more than 1 second, should be immediate")
+	}
 
 	tclose(t, db)
 }

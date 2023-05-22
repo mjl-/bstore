@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	mathrand "math/rand"
 	"os"
 	"reflect"
@@ -18,117 +17,6 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 )
-
-func tcheck(t *testing.T, err error, msg string) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("%s: %v", msg, err)
-	}
-}
-
-func tneed(t *testing.T, err error, expErr error, msg string) {
-	t.Helper()
-	if err == nil || (expErr == ErrAbsent && err != ErrAbsent) || !errors.Is(err, expErr) {
-		t.Fatalf("%s: got %q, expected error %q", msg, fmt.Sprintf("%v", err), expErr.Error())
-	}
-}
-
-func tcompare(t *testing.T, err error, got, exp any, msg string) {
-	t.Helper()
-	tcheck(t, err, msg)
-	if !reflect.DeepEqual(got, exp) {
-		t.Fatalf("%s: got %v, expect %v", msg, got, exp)
-	}
-}
-
-func tclose(t *testing.T, db *DB) {
-	err := db.Close()
-	tcheck(t, err, "close")
-}
-
-// pkclone returns a pointer to a new zero struct value of the
-// pointer-dereferenced type of struct pointer vp, but with the first field
-// copied into the new value.
-// Useful for a "Get" after an "Insert", and to compare for equality.
-func pkclone(vp any) any {
-	rv := reflect.ValueOf(vp).Elem()
-	if rv.Kind() != reflect.Struct {
-		panic("pkclone: v must be a struct")
-	}
-	nvp := reflect.New(rv.Type())
-	nvp.Elem().Field(0).Set(rv.Field(0))
-	return nvp.Interface()
-}
-
-func ptr[T any](v T) *T {
-	return &v
-}
-
-var withReopen bool
-
-func TestMain(m *testing.M) {
-	log.SetFlags(0)
-
-	os.Mkdir("testdata", 0700)
-
-	// We want to run all tests twice: once without reopening the DB and once with
-	// reopening. Looks like this works, but the first Run writes the coverage profile.
-	// Good enough.
-	sanityChecks = true
-	withReopen = true
-	e := m.Run()
-	if e > 0 {
-		os.Exit(e)
-	}
-	sanityChecks = false
-	withReopen = false
-	os.Exit(m.Run())
-}
-
-// To open a db, we open topen instead of Open. topen opens the db twice with same
-// types, and verifies no new typeversions are created the second time. This
-// leverages all test cases for this check.
-func topen(t *testing.T, path string, opts *Options, typeValues ...any) (*DB, error) {
-	t.Helper()
-	db, err := Open(ctxbg, path, opts, typeValues...)
-	if !withReopen || err != nil {
-		return db, err
-	}
-
-	oversions := map[string]uint32{}
-	for tname, st := range db.typeNames {
-		oversions[tname] = st.Current.Version
-	}
-
-	tclose(t, db)
-
-	db, err = Open(ctxbg, path, opts, typeValues...)
-	tcheck(t, err, "open again")
-
-	nversions := map[string]uint32{}
-	for tname, st := range db.typeNames {
-		nversions[tname] = st.Current.Version
-	}
-
-	if !reflect.DeepEqual(oversions, nversions) {
-		t.Fatalf("reopen of db created new typeversions: old %v, new %v", oversions, nversions)
-	}
-
-	return db, err
-}
-
-type bm struct {
-	value string
-}
-
-func (b bm) MarshalBinary() ([]byte, error) {
-	return []byte(b.value), nil
-}
-
-func (b *bm) UnmarshalBinary(buf []byte) error {
-	b.value = string(buf)
-	return nil
-}
 
 func TestOpenOptions(t *testing.T) {
 	type User struct {
@@ -340,12 +228,7 @@ func TestStore(t *testing.T) {
 
 		nuptrs := User{ID: uptrs.ID}
 		err = tx.Get(&nuptrs)
-		tcheck(t, err, "get of user with pointers")
-		if !reflect.DeepEqual(uptrs, nuptrs) {
-			log.Printf("uptrs: %v", uptrs)
-			log.Printf("nuptrs: %v", nuptrs)
-			t.Fatalf("uptrs and nuptrs not equal")
-		}
+		tcompare(t, err, nuptrs, uptrs, "get of user with pointers")
 
 		err = tx.Delete(&u)
 		tcheck(t, err, "delete")
@@ -1099,27 +982,15 @@ func TestPtrZero(t *testing.T) {
 
 		x0 := User{ID: u0.ID}
 		err = tx.Get(&x0)
-		tcheck(t, err, "get")
+		tcompare(t, err, x0, u0, "get")
 
 		x1 := User{ID: u1.ID}
 		err = tx.Get(&x1)
-		tcheck(t, err, "get")
+		tcompare(t, err, x1, u1, "get")
 
 		x2 := User{ID: u2.ID}
 		err = tx.Get(&x2)
-		tcheck(t, err, "get")
-
-		if !reflect.DeepEqual(u0, x0) {
-			t.Fatalf("u0 %v not equal to x0 %v", u0, x0)
-		}
-
-		if !reflect.DeepEqual(u1, x1) {
-			t.Fatalf("u1 %v not equal to x1 %v", u1, x1)
-		}
-
-		if !reflect.DeepEqual(u2, x2) {
-			t.Fatalf("u2 %v not equal to x2 %v", u2, x2)
-		}
+		tcompare(t, err, x2, u2, "get")
 
 		return nil
 	})
@@ -1434,6 +1305,76 @@ func TestNonzero(t *testing.T) {
 	tnonzero(ErrZero, &Nonzero[map[Nz]*Nz]{0, map[Nz]*Nz{{1}: {0}}})
 	tnonzero(nil, &Nonzero[map[Nz]*Nz]{0, map[Nz]*Nz{{1}: nil}})
 	tnonzero(nil, &Nonzero[[2]int]{0, [...]int{0, 1}})
+}
+
+// Nonzero should be enforced on struct tags deeper than top-level fields.
+func TestNonzeroDeeper(t *testing.T) {
+	type S struct {
+		I int `bstore:"nonzero"`
+	}
+	type T struct {
+		ID    int
+		S     S
+		Sptr  *S
+		Mk    map[S]struct{}
+		Mv    map[int]S
+		Mvptr map[int]*S
+		L     []S
+		Lptr  []*S
+		A     [1]S
+		Aptr  [1]*S
+	}
+
+	const path = "testdata/tmp.nonzerodeeper.db"
+
+	tnonzero := func(exp error, val any) {
+		t.Helper()
+		os.Remove(path)
+		db, err := topen(t, path, nil, reflect.ValueOf(val).Elem().Interface())
+		tcheck(t, err, "open")
+		err = db.Insert(ctxbg, val)
+		if exp != nil && (err == nil || !errors.Is(err, exp)) {
+			t.Fatalf("got err %v, expected %v", err, exp)
+		} else if exp == nil && err != nil {
+			t.Fatalf("got err %v, expected nil", err)
+			err = db.Get(ctxbg, val)
+			tcheck(t, err, "get")
+		}
+		tclose(t, db)
+	}
+
+	zs := S{0}
+	zsptr := &S{0}
+	zmk := map[S]struct{}{{0}: {}}
+	zmv := map[int]S{0: {0}}
+	zmvptr := map[int]*S{1: {0}}
+	zl := []S{{0}}
+	zlptr := []*S{{0}}
+	za := [1]S{{0}}
+	zaptr := [1]*S{{0}}
+
+	nzs := S{1}
+	nzsptr := &S{1}
+	nzmk := map[S]struct{}{{1}: {}}
+	nzmv := map[int]S{1: {1}}
+	nzmvptr := map[int]*S{1: {1}}
+	nzl := []S{{1}}
+	nzlptr := []*S{{1}}
+	nza := [1]S{{1}}
+	nzaptr := [1]*S{{1}}
+
+	tnonzero(nil, &T{0, nzs, nzsptr, nzmk, nzmv, nzmvptr, nzl, nzlptr, nza, nzaptr})
+	tnonzero(ErrZero, &T{})
+	tnonzero(nil, &T{S: nzs, A: nza})
+	tnonzero(ErrZero, &T{0, zs, nzsptr, nzmk, nzmv, nzmvptr, nzl, nzlptr, nza, nzaptr})
+	tnonzero(ErrZero, &T{0, nzs, zsptr, nzmk, nzmv, nzmvptr, nzl, nzlptr, nza, nzaptr})
+	tnonzero(ErrZero, &T{0, nzs, nzsptr, zmk, nzmv, nzmvptr, nzl, nzlptr, nza, nzaptr})
+	tnonzero(ErrZero, &T{0, nzs, nzsptr, nzmk, zmv, nzmvptr, nzl, nzlptr, nza, nzaptr})
+	tnonzero(ErrZero, &T{0, nzs, nzsptr, nzmk, nzmv, zmvptr, nzl, nzlptr, nza, nzaptr})
+	tnonzero(ErrZero, &T{0, nzs, nzsptr, nzmk, nzmv, nzmvptr, zl, nzlptr, nza, nzaptr})
+	tnonzero(ErrZero, &T{0, nzs, nzsptr, nzmk, nzmv, nzmvptr, nzl, zlptr, nza, nzaptr})
+	tnonzero(ErrZero, &T{0, nzs, nzsptr, nzmk, nzmv, nzmvptr, nzl, nzlptr, za, nzaptr})
+	tnonzero(ErrZero, &T{0, nzs, nzsptr, nzmk, nzmv, nzmvptr, nzl, nzlptr, nza, zaptr})
 }
 
 func TestRefIndexConflict(t *testing.T) {
@@ -1958,10 +1899,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 
 			x := User{ID: u.ID}
 			err = tx.Get(&x)
-			tcheck(t, err, "get user")
-			if !reflect.DeepEqual(u, x) {
-				t.Fatalf("u != x: %v != %v", u, x)
-			}
+			tcompare(t, err, x, u, "get user")
 		}
 		check(u0)
 		check(u1)
@@ -1982,10 +1920,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 			e := Empty{ID: u.ID}
 			x := Empty{ID: u.ID}
 			err = tx.Get(&x)
-			tcheck(t, err, "get user")
-			if !reflect.DeepEqual(e, x) {
-				t.Fatalf("e != x: %v != %v", e, x)
-			}
+			tcompare(t, err, x, e, "get user")
 		}
 		check(u0)
 		check(u1)
@@ -2005,10 +1940,7 @@ func TestFieldRemoveAdd(t *testing.T) {
 			e := User{ID: u.ID}
 			x := User{ID: u.ID}
 			err = tx.Get(&x)
-			tcheck(t, err, "get user")
-			if !reflect.DeepEqual(e, x) {
-				t.Fatalf("e != x: %v != %v", e, x)
-			}
+			tcompare(t, err, x, e, "get user")
 		}
 		check(u0)
 		check(u1)
@@ -3057,7 +2989,13 @@ func TestSliceIndexChange(t *testing.T) {
 	err = db1.Update(ctxbg, &xt0) // Compare slice values.
 	tcheck(t, err, "update")
 
-	xt1 := T1{t1.ID, []string{"x"}}
+	// Different number of elements.
+	xt1 := T1{t1.ID, []string{"x", "y", "z"}}
+	err = db1.Update(ctxbg, &xt1)
+	tcheck(t, err, "update")
+
+	// Same number of elements, but changed.
+	xt1 = T1{t1.ID, []string{"y", "z", "x"}}
 	err = db1.Update(ctxbg, &xt1)
 	tcheck(t, err, "update")
 
@@ -3330,6 +3268,13 @@ func TestEmbedSelf(t *testing.T) {
 		*X
 	}
 
+	// Change to type that has named self-referencing field.
+	type Y struct {
+		ID int `bstore:"typename X"`
+		S  string
+		X  *Y
+	}
+
 	const path = "testdata/tmp.embedself.db"
 	os.Remove(path)
 	db, err := topen(t, path, nil, X{})
@@ -3350,6 +3295,53 @@ func TestEmbedSelf(t *testing.T) {
 	x = X{ID: v.ID}
 	err = db.Get(ctxbg, &x)
 	tcompare(t, err, x, v, "compare")
+
+	tclose(t, db)
+
+	yexp := Y{ID: v.ID, S: "s", X: &Y{S: "y"}}
+	db, err = topen(t, path, nil, Y{})
+	tcheck(t, err, "open db")
+	y := Y{ID: v.ID}
+	err = db.Get(ctxbg, &y)
+	tcompare(t, err, y, yexp, "compare")
+
+	tclose(t, db)
+}
+
+func TestEmbedNontoplevelSelf(t *testing.T) {
+	type C struct {
+		R int
+	}
+	type B struct {
+		S string
+		C
+		*B
+	}
+	type A struct {
+		ID int
+		B  B
+	}
+
+	const path = "testdata/tmp.embednontoplevelself.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, A{})
+	tcheck(t, err, "open")
+
+	v := A{B: B{S: "y", B: &B{S: "z", C: C{R: 3}}}}
+	err = db.Insert(ctxbg, &v)
+	tcheck(t, err, "insert")
+
+	a := A{ID: v.ID}
+	err = db.Get(ctxbg, &a)
+	tcompare(t, err, a, v, "get v")
+
+	tclose(t, db)
+
+	db, err = topen(t, path, nil, A{})
+	tcheck(t, err, "open db")
+	a = A{ID: v.ID}
+	err = db.Get(ctxbg, &a)
+	tcompare(t, err, a, v, "compare")
 
 	tclose(t, db)
 }

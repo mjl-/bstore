@@ -12,7 +12,7 @@ func (ft fieldType) isZero(v reflect.Value) bool {
 		return true
 	}
 	if ft.Ptr {
-		return v.IsNil()
+		return v.IsZero()
 	}
 	switch ft.Kind {
 	case kindStruct:
@@ -89,7 +89,7 @@ func (tx *Tx) checkNonzero(st storeType, tv *typeVersion, ofields, nfields []fie
 	}
 
 	// Read through all data, and check the new nonzero constraint.
-	// todo: if there are only top-level fields to check, and we have an indices on those fields, we can use the index to check this without reading all data.
+	// todo optimize: if there are only top-level fields to check, and we have indices on those fields, we can use the index to check this without reading all data.
 	return checkNonzeroRecords(tx, st, tv, m)
 }
 
@@ -227,7 +227,7 @@ func checkNonzeroRecords(tx *Tx, st storeType, tv *typeVersion, m map[reflect.Ty
 		default:
 		}
 
-		// todo optimization: instead of parsing the full record, use the fieldmap to see if the value is nonzero.
+		// todo optimize: instead of parsing the full record, use the fieldmap to see if the value is nonzero.
 		rv, err := st.parseNew(bk, bv)
 		if err != nil {
 			return err
@@ -274,7 +274,7 @@ func checkNonzeroFieldType(m map[reflect.Type]*nonzeroCheckType, ft fieldType, t
 		return nil
 	}
 
-	if ft.Ptr && (rv.IsZero() || rv.IsNil()) {
+	if ft.Ptr && rv.IsZero() {
 		return nil
 	}
 

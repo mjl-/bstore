@@ -95,16 +95,12 @@ some have multiple space-separated words:
 # Schema updates
 
 Before using a Go type, you must register it for use with the open database by
-passing a (zero) value of that type to the Open or Register functions. For each
-type, a type definition is stored in the database. If a type has an updated
-definition since the previous database open, a new type definition is added to
-the database automatically and any required modifications are made: Indexes
-(re)created, fields added/removed, new nonzero/unique/reference constraints
-validated.
-
-If data/types cannot be updated automatically (e.g. converting an int field into
-a string field), custom data migration code is needed. You may have to keep
-track of a data/schema version.
+passing a (possibly zero) value of that type to the Open or Register functions.
+For each type, a type definition is stored in the database. If a type has an
+updated definition since the previous database open, a new type definition is
+added to the database automatically and any required modifications are made and
+checked: Indexes (re)created, fields added/removed, new
+nonzero/unique/reference constraints validated.
 
 As a special case, you can change field types between pointer and non-pointer
 types. With one exception: changing from pointer to non-pointer where the type
@@ -116,18 +112,67 @@ Because named embed structs are not part of the type definition, you can
 wrap/unwrap fields into a embed/anonymous struct field. No new type definition
 is created.
 
-# BoltDB
+Some schema conversions are not allowed. In some cases due to architectural
+limitations. In some cases because the constraint checks haven't been
+implemented yet, or the parsing code does not yet know how to parse the old
+on-disk values into the updated Go types. If you need a conversion that is not
+supported, you will need to write a manual conversion, and you would have to
+keep track whether the update has been executed.
 
-BoltDB is used as underlying storage. Bolt provides ACID transactions, storing
-its data in a B+tree. Either a single write transaction or multiple read-only
+Changes that are allowed:
+
+  - From smaller to larger integer types (same signedness).
+  - Removal of "noauto" on primary keys (always integer types). This updates the
+    "next sequence" counter automatically to continue after the current maximum
+    value.
+  - Adding/removing/modifying an index, including a unique index. When a unique
+    index is added, the current records are verified to be unique.
+  - Adding/removing a reference. When a reference is added, the current records
+    are verified to be valid references.
+  - Add/remove a nonzero constraint. Existing records are verified.
+
+Conversions that are not currently allowed, but may be in the future:
+
+  - Signedness of integer types. With a one-time check that old values fit in the new
+    type, this could be allowed in the future.
+  - Conversions between basic types: strings, []byte, integers, floats, boolean.
+    Checks would have to be added for some of these conversions. For example,
+    from string to integer: the on-disk string values would have to be valid
+    integers.
+  - Types of primary keys cannot be changed, also not from one integer type to a
+    wider integer type of same signedness.
+
+# BoltDB and storage
+
+BoltDB is used as underlying storage. BoltDB stores key/values in a single
+file, in multiple/nested buckets (namespaces) in a B+tree and provides ACID
+transactions.  Either a single write transaction or multiple read-only
 transactions can be active at a time.  Do not start a blocking read-only
 transaction while holding a writable transaction or vice versa, this will cause
 deadlock.
 
-BoltDB uses Go values that are memory mapped to the database file. This means
-BoltDB/bstore database files cannot be transferred between machines with
+BoltDB returns Go values that are memory mapped to the database file.  This
+means BoltDB/bstore database files cannot be transferred between machines with
 different endianness.  BoltDB uses explicit widths for its types, so files can
-be transferred between 32bit and 64bit machines of same endianness.
+be transferred between 32bit and 64bit machines of same endianness. While
+BoltDB returns read-only memory mapped Go values, bstore only ever returns
+parsed/copied regular writable Go values that require no special programmer
+attention.
+
+For each Go type opened for a database file, bstore ensures a BoltDB bucket
+exists with two subbuckets:
+
+  - "types", with type descriptions of the stored records. Each time the database
+    file is opened with a modified Go type (add/removed/modified
+    field/type/bstore struct tag), a new type description is automatically added,
+    identified by sequence number.
+  - "records", containing all data, with the type's primary key as BoltDB key,
+    and the encoded remaining fields as value. The encoding starts with a
+    reference to a type description.
+
+For each index, another subbucket is created, its name starting with "index.".
+The stored keys consist of the index fields followed by the primary key, and an
+empty value.
 
 # Limitations
 
@@ -140,10 +185,6 @@ other concepts.
 Filtering/comparing/sorting on pointer fields is not allowed.  Pointer fields
 cannot have a (unique) index. Use non-pointer values with the zero value as the
 equivalent of a nil pointer.
-
-Integer field types can be expanded to wider types, but not to a different
-signedness or a smaller integer (fewer bits). The primary key of a type cannot
-be changed.
 
 The first field of a stored struct is always the primary key. Autoincrement is
 only available for the primary key.
@@ -160,6 +201,6 @@ records.
 Interface values cannot be stored. This would require storing the type along
 with the value. Instead, use a type that is a BinaryMarshaler.
 
-Complex values cannot be stored.
+Values of builtin type "complex" cannot be stored.
 */
 package bstore
