@@ -348,11 +348,11 @@ func TestBoolptr(t *testing.T) {
 		err = tx.Get(&n)
 		tcompare(t, err, n, Boolptr{ID: n.ID}, "nil")
 
-		tr := Boolptr{ID: tr.ID}
+		tr = Boolptr{ID: tr.ID}
 		err = tx.Get(&tr)
 		tcompare(t, err, tr, Boolptr{ID: tr.ID, Value: &xtrue}, "true")
 
-		f := Boolptr{ID: f.ID}
+		f = Boolptr{ID: f.ID}
 		err = tx.Get(&f)
 		tcompare(t, err, f, Boolptr{ID: f.ID}, "false") // Now nil...
 
