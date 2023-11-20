@@ -1209,3 +1209,55 @@ func TestIDsLimit(t *testing.T) {
 	users, err = QueryDB[User](ctxbg, db).FilterEqual("Other", "a", "b").Limit(1).SortAsc("ID").List()
 	tcompare(t, err, users, []User{u0}, "filterids with limit with sort")
 }
+
+// Bug: not repositioning cursor after changing (keys in a) bucket can cause
+// undefined behaviour. In practice, it looked like some keys would be skipped,
+// causing Delete and/or Update operations to only do partial work in certain
+// situations. The new approach is gathering all records first, then delete
+// them. Same for updates.
+func TestDelete(t *testing.T) {
+	type T struct {
+		ID int64
+		A  string
+	}
+	// These values were reliably triggering the bug when removing "b". Without an "a" record that was removed first, the bug would not be triggered.
+	values := []T{
+		{0, "a"},
+		{0, "b"},
+		{0, "b"}, // This record, and every other record with "b" as value, would not be removed.
+		{0, "b"},
+		{0, "b"}, // Would also not be removed.
+	}
+
+	const path = "testdata/tmp.delete.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+	defer tclose(t, db)
+
+	for _, v := range values {
+		err := db.Insert(ctxbg, &v)
+		tcheck(t, err, "insert")
+	}
+
+	err = db.Write(ctxbg, func(tx *Tx) error {
+		// Order does matter when removing. When removing "b" first, it will be successful.
+		// Only when we remove "a" first will we trigger the bug.
+		for _, dom := range []string{"a", "b"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{A: dom}).List()
+			tcheck(t, err, "list before")
+
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{A: dom})
+			n, err := q.Delete()
+			tcompare(t, err, n, len(l), "delete")
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{A: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), 0, "list after delete")
+		}
+
+		return nil
+	})
+	tcheck(t, err, "write")
+}
