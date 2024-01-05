@@ -34,6 +34,7 @@ func TestExport(t *testing.T) {
 		Float64     float64
 		Coordinates [2]float32
 		BM          bm
+		Data        [4]byte
 	}
 
 	const path = "testdata/tmp.export.db"
@@ -74,6 +75,7 @@ func TestExport(t *testing.T) {
 			-100.34,
 			[2]float32{6.062495, 53.063354},
 			bm{"test"},
+			[...]byte{255, 0, 1, 0},
 		}
 		err = tx.Insert(&u3)
 		tcheck(t, err, "insert nonzero")
@@ -95,6 +97,7 @@ func TestExport(t *testing.T) {
 			101,
 			[2]float32{0, 0},
 			bm{""},
+			[...]byte{0, 0, 0, 0},
 		}
 		err = tx.Insert(&u4)
 		tcheck(t, err, "insert different nonzero")
@@ -114,7 +117,7 @@ func TestExport(t *testing.T) {
 		tcompare(t, err, xids2, ids2, "keys")
 
 		var fields []string
-		expFields := []string{"ID", "String", "Time", "Bool", "Boolptr", "Uint", "Bytes", "Struct", "Slice", "Slice2", "Map", "Map2", "Float32", "Float64", "Coordinates", "BM"}
+		expFields := []string{"ID", "String", "Time", "Bool", "Boolptr", "Uint", "Bytes", "Struct", "Slice", "Slice2", "Map", "Map2", "Float32", "Float64", "Coordinates", "BM", "Data"}
 		xids2 = nil
 		err = tx.Records("User2", &fields, func(v map[string]any) error {
 			xids2 = append(xids2, v["ID"].(int))
