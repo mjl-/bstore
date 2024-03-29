@@ -31,10 +31,15 @@ type plan[T any] struct {
 	// index. Required non-nil for unique.
 	keys [][]byte
 
-	desc           bool   // Direction of the range scan.
-	start          []byte // First key to scan. Filters below may still apply. If desc, this value is > than stop (if it is set). If nil, we begin ranging at the first or last (for desc) key.
-	stop           []byte // Last key to scan. Can be nil independently of start.
-	startInclusive bool   // If the start and stop values are inclusive or exclusive.
+	desc bool // Direction of the range scan.
+	// First key to scan. Filters below may still apply. If desc, this value is > than
+	// stop (if it is set). If nil, we begin ranging at the first or last (for desc)
+	// key.
+	start []byte
+	// Last key to scan. Can be nil independently of start.
+	stop []byte
+	// If the start and stop values are inclusive or exclusive.
+	startInclusive bool
 	stopInclusive  bool
 
 	// Filter we need to apply after retrieving the record. If all original filters
@@ -42,9 +47,12 @@ type plan[T any] struct {
 	// empty.
 	filters []filter[T]
 
-	// Orders we need to apply after first retrieving all records. As with
-	// filters, if a range scan takes care of an ordering from the query,
-	// this field is empty.
+	// Orders handled by index. If any orderings are remaining, they are in orders below.
+	ordersIdx []order
+
+	// Orders we need to apply after first retrieving all records with equal
+	// indexOrders. As with filters, if a range scan takes care of all orderings from
+	// the query, this field is empty.
 	orders []order
 }
 
@@ -205,7 +213,7 @@ indices:
 		}
 
 		var nex = 0
-		// log.Printf("idx %v", idx)
+		// log.Printf("evaluating idx %#v", idx)
 		var skipFilters []*filter[T]
 		for _, f := range idx.Fields {
 			if equals[f.Name] != nil && f.Type.Kind != kindSlice {
@@ -222,7 +230,8 @@ indices:
 		// See if the next field can be used for compare.
 		var gx, lx *filterCompare[T]
 		var nrng int
-		var order *order
+		var orderidx *order
+		var ordersIdx []order
 		orders := q.xorders
 		if nex < len(idx.Fields) {
 			nf := idx.Fields[nex]
@@ -251,21 +260,23 @@ indices:
 			}
 
 			// See if it can be used for ordering.
-			// todo optimize: we could use multiple orders
+			// todo optimize: we could use multiple orders including final ID.
 			if len(orders) > 0 && orders[0].field.Name == nf.Name {
-				order = &orders[0]
+				// log.Printf("using for ordering first field %q", nf.Name)
+				ordersIdx = orders[:1]
+				orderidx = &orders[0]
 				orders = orders[1:]
 			}
 		}
 
 		// See if this is better than what we had.
-		if !(nex > nexact || (nex == nexact && (nrng > nrange || order != nil && !ordered && (q.xlimit > 0 || nrng == nrange)))) {
-			// log.Printf("plan not better, nex %d, nrng %d, limit %d, order %v ordered %v", nex, nrng, q.limit, order, ordered)
+		if !(nex > nexact || (nex == nexact && (nrng > nrange || orderidx != nil && !ordered && (q.xlimit > 0 || nrng == nrange)))) {
+			// log.Printf("plan not better, nex %d, nrng %d, limit %d, orderidx %v ordered %v", nex, nrng, q.xlimit, orderidx, ordered)
 			return nil
 		}
 		nexact = nex
 		nrange = nrng
-		ordered = order != nil
+		ordered = orderidx != nil
 
 		// Calculate the prefix key.
 		var kvalues []reflect.Value
@@ -307,7 +318,7 @@ indices:
 
 		startInclusive := gx == nil || gx.op != opGreater
 		stopInclusive := lx == nil || lx.op != opLess
-		if order != nil && !order.asc {
+		if orderidx != nil && !orderidx.asc {
 			start, stop = stop, start
 			startInclusive, stopInclusive = stopInclusive, startInclusive
 		}
@@ -318,12 +329,13 @@ indices:
 
 		p = &plan[T]{
 			idx:            idx,
-			desc:           order != nil && !order.asc,
+			desc:           orderidx != nil && !orderidx.asc,
 			start:          start,
 			stop:           stop,
 			startInclusive: startInclusive,
 			stopInclusive:  stopInclusive,
 			filters:        dropFilters(q.xfilters, skipFilters),
+			ordersIdx:      ordersIdx,
 			orders:         orders,
 		}
 		return nil
@@ -341,6 +353,7 @@ indices:
 
 	}
 	if p != nil {
+		// log.Printf("using index plan %v", p)
 		return p, nil
 	}
 

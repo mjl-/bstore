@@ -1261,3 +1261,128 @@ func TestDelete(t *testing.T) {
 	})
 	tcheck(t, err, "write")
 }
+
+func TestSortIndex(t *testing.T) {
+	type T struct {
+		ID   int64
+		Time time.Time `bstore:"index"`
+	}
+
+	const path = "testdata/tmp.sortindex.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+	defer tclose(t, db)
+
+	now := time.Now().Round(0)
+	values := []T{
+		{0, now.Add(0 * time.Second)},
+		{0, now.Add(0 * time.Second)},
+		{0, now.Add(1 * time.Second)},
+		{0, now.Add(1 * time.Second)},
+		{0, now.Add(-1 * time.Second)},
+		{0, now.Add(-1 * time.Second)},
+	}
+	for i := range values {
+		err := db.Insert(ctxbg, &values[i])
+		tcheck(t, err, "insert")
+	}
+
+	l, err := QueryDB[T](ctxbg, db).SortAsc("Time", "ID").List()
+	tcheck(t, err, "query")
+	exp := []T{values[4], values[5], values[0], values[1], values[2], values[3]}
+	tcompare(t, err, l, exp, "sort asc by time,id")
+
+	l, err = QueryDB[T](ctxbg, db).SortAsc("Time", "ID").Limit(3).List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp[:3], "sort asc by time,id with limit")
+
+	l, err = QueryDB[T](ctxbg, db).SortDesc("Time", "ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[3], values[2], values[1], values[0], values[5], values[4]}
+	tcompare(t, err, l, exp, "sort desc by time,id")
+
+	l, err = QueryDB[T](ctxbg, db).SortDesc("Time", "ID").Limit(3).List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp[:3], "sort desc by time,id with limit")
+
+	l, err = QueryDB[T](ctxbg, db).SortAsc("Time").SortDesc("ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[5], values[4], values[1], values[0], values[3], values[2]}
+	tcompare(t, err, l, exp, "sort by asc time, desc id")
+
+	l, err = QueryDB[T](ctxbg, db).SortAsc("Time").SortDesc("ID").Limit(3).List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp[:3], "sort by asc time, desc id")
+
+	l, err = QueryDB[T](ctxbg, db).SortDesc("Time").SortAsc("ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[2], values[3], values[0], values[1], values[4], values[5]}
+	tcompare(t, err, l, exp, "sort by desc time, asc id")
+
+	l, err = QueryDB[T](ctxbg, db).SortDesc("Time").SortAsc("ID").Limit(3).List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp[:3], "sort by desc time, asc id with limit")
+}
+
+func TestSortIndexString(t *testing.T) {
+	type T struct {
+		ID   int64
+		S string `bstore:"index"`
+	}
+
+	const path = "testdata/tmp.sortindexstring.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+	defer tclose(t, db)
+
+	values := []T{
+		{0, "aa"},
+		{0, "aa"},
+		{0, "b"},
+		{0, "b"},
+		{0, "a"},
+		{0, "a"},
+	}
+	for i := range values {
+		err := db.Insert(ctxbg, &values[i])
+		tcheck(t, err, "insert")
+	}
+
+	l, err := QueryDB[T](ctxbg, db).SortAsc("S", "ID").List()
+	tcheck(t, err, "query")
+	exp := []T{values[4], values[5], values[0], values[1], values[2], values[3]}
+	tcompare(t, err, l, exp, "sort asc by str,id")
+
+	l, err = QueryDB[T](ctxbg, db).SortAsc("S", "ID").Limit(3).List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp[:3], "sort asc by str,id with limit")
+
+	l, err = QueryDB[T](ctxbg, db).SortDesc("S", "ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[3], values[2], values[1], values[0], values[5], values[4]}
+	tcompare(t, err, l, exp, "sort desc by str,id")
+
+	l, err = QueryDB[T](ctxbg, db).SortDesc("S", "ID").Limit(3).List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp[:3], "sort desc by str,id with limit")
+
+	l, err = QueryDB[T](ctxbg, db).SortAsc("S").SortDesc("ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[5], values[4], values[1], values[0], values[3], values[2]}
+	tcompare(t, err, l, exp, "sort by asc str, desc id")
+
+	l, err = QueryDB[T](ctxbg, db).SortAsc("S").SortDesc("ID").Limit(3).List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp[:3], "sort by asc str, desc id")
+
+	l, err = QueryDB[T](ctxbg, db).SortDesc("S").SortAsc("ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[2], values[3], values[0], values[1], values[4], values[5]}
+	tcompare(t, err, l, exp, "sort by desc str, asc id")
+
+	l, err = QueryDB[T](ctxbg, db).SortDesc("S").SortAsc("ID").Limit(3).List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp[:3], "sort by desc str, asc id with limit")
+}

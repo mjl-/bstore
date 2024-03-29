@@ -27,7 +27,7 @@ func tcompare(t *testing.T, err error, got, exp any, msg string) {
 	t.Helper()
 	tcheck(t, err, msg)
 	if !reflect.DeepEqual(got, exp) {
-		t.Fatalf("%s: got %v, expect %v", msg, got, exp)
+		t.Fatalf("%s: got:\n%v\nexpected:\n%v", msg, got, exp)
 	}
 }
 
