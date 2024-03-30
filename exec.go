@@ -21,21 +21,27 @@ type exec[T any] struct {
 	// See plan.keys. We remove items from the list when we looked one up, but we keep the slice non-nil.
 	keys [][]byte
 
-	// If -1, no limit is set. This is different from Query where 0 means
-	// no limit. We count back and 0 means the end.
+	// If non-empty, serve nextKey requests from here. Used when we need to do
+	// in-memory sort. After reading from here, and limit isn't reached yet, we may do
+	// another fill & sort of data to serve from, for orderings partially from an
+	// index. When filling data, limit (below) is accounted for, so all elements can be
+	// returned to caller.
+	data []pair[T]
+
+	// If -1, no limit is set. This is different from Query where 0 means no limit. We
+	// count back and 0 means the end. Also set from -1 to 0 when end of execution is
+	// reached.
 	limit int
 
-	// If non-empty, serve nextKey requests from here. Used when we need to sort. After
-	// reading from here, and limit isn't reached yet, we may do another fill & sort of
-	// data to serve from, for orderings partially from an index.
-	data []pair[T]
-	ib   *bolt.Bucket
-	rb   *bolt.Bucket
+	// Index and record buckets loaded when first needed.
+	ib *bolt.Bucket
+	rb *bolt.Bucket
 
-	// Of last element in data. For prefix-match during partial index ordering.
+	// Of last element in data. For finding end of group through prefix-match during
+	// partial index ordering for remaining in-memory sort.
 	lastik []byte
 
-	// If not nil, row scanned before, to use instead of calling forward.
+	// If not nil, row that was scanned previously, to use instead of calling forward.
 	stowedbk, stowedbv []byte
 
 	// Once we start scanning, we prepare forward to next/prev to the following value.
@@ -65,7 +71,7 @@ func (p *plan[T]) exec(q *Query[T]) *exec[T] {
 	if len(p.orders) > 0 {
 		q.stats.Sort++
 	}
-	q.stats.LastOrdered = p.start != nil || p.stop != nil
+	q.stats.LastOrdered = p.start != nil || p.stop != nil || p.norderidxuse > 0
 	q.stats.LastAsc = !p.desc
 
 	limit := -1
@@ -135,7 +141,7 @@ func (e *exec[T]) nextKey(write, value bool) ([]byte, T, error) {
 		return p.bk, v, nil
 	}
 
-	// Limit is reached by returning data and was set to 0 when we reached the end.
+	// Limit is 0 when we hit the limit or at end of processing the execution.
 	if e.limit == 0 {
 		return nil, zero, ErrAbsent
 	}
@@ -342,14 +348,14 @@ func (e *exec[T]) nextKey(write, value bool) ([]byte, T, error) {
 		}
 
 		var pk, bv []byte
-		orderIdxPartial := len(e.plan.ordersIdx) > 0 && len(e.plan.orders) > 0
+		ordersidxPartial := e.plan.norderidxuse > 0 && len(e.plan.orders) > 0
 		var idxkeys [][]byte // Only set when we have partial ordering from index.
 		if e.plan.idx == nil {
 			pk = xk
 			bv = xv
 		} else {
 			var err error
-			pk, idxkeys, err = e.plan.idx.parseKey(xk, orderIdxPartial, orderIdxPartial)
+			pk, idxkeys, err = e.plan.idx.parseKey(xk, ordersidxPartial, true)
 			if err != nil {
 				q.error(err)
 				return nil, zero, err
@@ -361,7 +367,7 @@ func (e *exec[T]) nextKey(write, value bool) ([]byte, T, error) {
 		// have by the remaining ordering, return that data, and continue collecting in the
 		// next round. We stow the new value so we don't have to revert the forward() from
 		// earlier.
-		if orderIdxPartial && len(e.data) > 0 && !prefixMatch(e.lastik, idxkeys[:len(e.plan.ordersIdx)]) {
+		if ordersidxPartial && len(e.data) > 0 && !prefixMatch(e.lastik, e.plan.norderidxuse, idxkeys, pk) {
 			e.stowedbk, e.stowedbv = xk, xv
 			break
 		}
@@ -408,9 +414,16 @@ func (e *exec[T]) nextKey(write, value bool) ([]byte, T, error) {
 	return e.nextKey(write, value)
 }
 
-// prefixMatch returns whether ik (index key) starts with the bytes from field keys kl
-func prefixMatch(ik []byte, kl [][]byte) bool {
-	for _, k := range kl {
+// prefixMatch returns whether ik (index key) starts with the bytes from n elements
+// from field keys kl and primary key pk.
+func prefixMatch(ik []byte, n int, kl [][]byte, pk []byte) bool {
+	for i := 0; i < n; i++ {
+		var k []byte
+		if i < len(kl) {
+			k = kl[i]
+		} else {
+			k = pk
+		}
 		if !bytes.HasPrefix(ik, k) {
 			return false
 		}
@@ -614,6 +627,10 @@ func compare(k kind, a, b reflect.Value) int {
 }
 
 func (e *exec[T]) sort() {
+	if len(e.data) <= 1 {
+		return
+	}
+
 	// todo: We should check whether we actually need to load values. We're
 	// always loading it for the time being because SortStableFunc isn't
 	// going to give us a *pair (even though it could because of the slice)

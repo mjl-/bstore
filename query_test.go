@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"os"
+	"slices"
 	"testing"
 	"time"
 )
@@ -1266,6 +1267,7 @@ func TestSortIndex(t *testing.T) {
 	type T struct {
 		ID   int64
 		Time time.Time `bstore:"index"`
+		A    string
 	}
 
 	const path = "testdata/tmp.sortindex.db"
@@ -1276,59 +1278,71 @@ func TestSortIndex(t *testing.T) {
 
 	now := time.Now().Round(0)
 	values := []T{
-		{0, now.Add(0 * time.Second)},
-		{0, now.Add(0 * time.Second)},
-		{0, now.Add(1 * time.Second)},
-		{0, now.Add(1 * time.Second)},
-		{0, now.Add(-1 * time.Second)},
-		{0, now.Add(-1 * time.Second)},
+		{0, now.Add(0 * time.Second), "a"},
+		{0, now.Add(0 * time.Second), "b"},
+		{0, now.Add(1 * time.Second), "c"},
+		{0, now.Add(1 * time.Second), "d"},
+		{0, now.Add(-1 * time.Second), "e"},
+		{0, now.Add(-1 * time.Second), "f"},
 	}
 	for i := range values {
 		err := db.Insert(ctxbg, &values[i])
 		tcheck(t, err, "insert")
 	}
 
-	l, err := QueryDB[T](ctxbg, db).SortAsc("Time", "ID").List()
+	var stats, delta Stats
+	stats = db.Stats()
+
+	updateStats := func() {
+		nstats := db.Stats()
+		delta = nstats.Sub(stats)
+		stats = nstats
+	}
+
+	l, err := QueryDB[T](ctxbg, db).SortAsc("Time", "A").List()
 	tcheck(t, err, "query")
 	exp := []T{values[4], values[5], values[0], values[1], values[2], values[3]}
 	tcompare(t, err, l, exp, "sort asc by time,id")
 
-	l, err = QueryDB[T](ctxbg, db).SortAsc("Time", "ID").Limit(3).List()
+	l, err = QueryDB[T](ctxbg, db).SortAsc("Time", "A").Limit(3).List()
 	tcheck(t, err, "query")
 	tcompare(t, err, l, exp[:3], "sort asc by time,id with limit")
 
-	l, err = QueryDB[T](ctxbg, db).SortDesc("Time", "ID").List()
+	l, err = QueryDB[T](ctxbg, db).SortDesc("Time", "A").List()
 	tcheck(t, err, "query")
 	exp = []T{values[3], values[2], values[1], values[0], values[5], values[4]}
 	tcompare(t, err, l, exp, "sort desc by time,id")
 
-	l, err = QueryDB[T](ctxbg, db).SortDesc("Time", "ID").Limit(3).List()
+	l, err = QueryDB[T](ctxbg, db).SortDesc("Time", "A").Limit(3).List()
 	tcheck(t, err, "query")
 	tcompare(t, err, l, exp[:3], "sort desc by time,id with limit")
 
-	l, err = QueryDB[T](ctxbg, db).SortAsc("Time").SortDesc("ID").List()
+	l, err = QueryDB[T](ctxbg, db).SortAsc("Time").SortDesc("A").List()
 	tcheck(t, err, "query")
 	exp = []T{values[5], values[4], values[1], values[0], values[3], values[2]}
 	tcompare(t, err, l, exp, "sort by asc time, desc id")
 
-	l, err = QueryDB[T](ctxbg, db).SortAsc("Time").SortDesc("ID").Limit(3).List()
+	l, err = QueryDB[T](ctxbg, db).SortAsc("Time").SortDesc("A").Limit(3).List()
 	tcheck(t, err, "query")
 	tcompare(t, err, l, exp[:3], "sort by asc time, desc id")
 
-	l, err = QueryDB[T](ctxbg, db).SortDesc("Time").SortAsc("ID").List()
+	l, err = QueryDB[T](ctxbg, db).SortDesc("Time").SortAsc("A").List()
 	tcheck(t, err, "query")
 	exp = []T{values[2], values[3], values[0], values[1], values[4], values[5]}
 	tcompare(t, err, l, exp, "sort by desc time, asc id")
 
-	l, err = QueryDB[T](ctxbg, db).SortDesc("Time").SortAsc("ID").Limit(3).List()
+	l, err = QueryDB[T](ctxbg, db).SortDesc("Time").SortAsc("A").Limit(3).List()
 	tcheck(t, err, "query")
 	tcompare(t, err, l, exp[:3], "sort by desc time, asc id with limit")
+
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(8), "sort used by all queries")
 }
 
 func TestSortIndexString(t *testing.T) {
 	type T struct {
-		ID   int64
-		S string `bstore:"index"`
+		ID int64
+		S  string `bstore:"index"`
 	}
 
 	const path = "testdata/tmp.sortindexstring.db"
@@ -1350,6 +1364,15 @@ func TestSortIndexString(t *testing.T) {
 		tcheck(t, err, "insert")
 	}
 
+	var stats, delta Stats
+	stats = db.Stats()
+
+	updateStats := func() {
+		nstats := db.Stats()
+		delta = nstats.Sub(stats)
+		stats = nstats
+	}
+
 	l, err := QueryDB[T](ctxbg, db).SortAsc("S", "ID").List()
 	tcheck(t, err, "query")
 	exp := []T{values[4], values[5], values[0], values[1], values[2], values[3]}
@@ -1368,6 +1391,9 @@ func TestSortIndexString(t *testing.T) {
 	tcheck(t, err, "query")
 	tcompare(t, err, l, exp[:3], "sort desc by str,id with limit")
 
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "4 queries sorted using only index")
+
 	l, err = QueryDB[T](ctxbg, db).SortAsc("S").SortDesc("ID").List()
 	tcheck(t, err, "query")
 	exp = []T{values[5], values[4], values[1], values[0], values[3], values[2]}
@@ -1385,4 +1411,347 @@ func TestSortIndexString(t *testing.T) {
 	l, err = QueryDB[T](ctxbg, db).SortDesc("S").SortAsc("ID").Limit(3).List()
 	tcheck(t, err, "query")
 	tcompare(t, err, l, exp[:3], "sort by desc str, asc id with limit")
+
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(4), "4 queries sorted in memory")
+}
+
+func TestSortIndexMultiple(t *testing.T) {
+	type T struct {
+		ID int64
+		A  string `bstore:"index A+B"`
+		B  string
+	}
+
+	const path = "testdata/tmp.sortindexmultiple.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+	defer tclose(t, db)
+
+	values := []T{
+		{0, "aa", "x"},
+		{0, "aa", "z"},
+		{0, "aa", "y"},
+		{0, "aa", "x"},
+		{0, "b", "x"},
+		{0, "a", "x"},
+		{0, "a", "x"},
+	}
+	for i := range values {
+		err := db.Insert(ctxbg, &values[i])
+		tcheck(t, err, "insert")
+	}
+
+	var stats, delta Stats
+	stats = db.Stats()
+
+	updateStats := func() {
+		nstats := db.Stats()
+		delta = nstats.Sub(stats)
+		stats = nstats
+	}
+
+	// Use full index ascending.
+	l, err := QueryDB[T](ctxbg, db).SortAsc("A", "B", "ID").List()
+	tcheck(t, err, "query")
+	exp := []T{values[5], values[6], values[0], values[3], values[2], values[1], values[4]}
+	tcompare(t, err, l, exp, "sort asc by a,b,id")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in-memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Use full index descending.
+	slices.Reverse(exp)
+	l, err = QueryDB[T](ctxbg, db).SortDesc("A", "B", "ID").List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp, "sort desc by a,b,id")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in-memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Use index scan for A and in-memory sort for B,ID.
+	l, err = QueryDB[T](ctxbg, db).SortAsc("A").SortDesc("B").SortAsc("ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[5], values[6], values[1], values[2], values[0], values[3], values[4]}
+	tcompare(t, err, l, exp, "sort a asc, b desc, id asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(1), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Again, with limit.
+	l, err = QueryDB[T](ctxbg, db).SortAsc("A").SortDesc("B").SortAsc("ID").Limit(4).List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp[:4], "sort a asc, b desc, id asc")
+	updateStats()
+
+	// Use index scan for A,B and in-memory sort for ID.
+	l, err = QueryDB[T](ctxbg, db).SortAsc("A", "B").SortDesc("ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[6], values[5], values[3], values[0], values[2], values[1], values[4]}
+	tcompare(t, err, l, exp, "sort a asc, b desc, id desc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(1), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Again, with limit.
+	l, err = QueryDB[T](ctxbg, db).SortAsc("A", "B").SortDesc("ID").Limit(4).List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp[:4], "sort a asc, b desc, id desc")
+	updateStats()
+
+	// Use index with filtering on A and sorting by B,ID.
+	l, err = QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortAsc("B", "ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[0], values[3], values[2], values[1]}
+	tcompare(t, err, l, exp, "filter a=aa, sort b,id asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Still use index with filtering on A and sorting by A,B,ID (A ordering ignored).
+	l, err = QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortAsc("A", "B", "ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[0], values[3], values[2], values[1]}
+	tcompare(t, err, l, exp, "filter a=aa, sort a,b,id asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Use both index and in-memory sorting for A=aa and B asc, ID desc.
+	l, err = QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortAsc("B").SortDesc("ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[3], values[0], values[2], values[1]}
+	tcompare(t, err, l, exp, "filter a=aa, sort b asc,id desc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(1), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// xxx also with filter and with sort on same field
+
+	// Use both index and in-memory sorting for A=aa and B desc, ID asc.
+	l, err = QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortDesc("B").SortAsc("ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[1], values[2], values[0], values[3]}
+	tcompare(t, err, l, exp, "filter a=aa, sort b desc,id asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(1), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Use index with compare on A and sorting by A,B,ID.
+	l, err = QueryDB[T](ctxbg, db).FilterGreaterEqual("A", "aa").SortAsc("A", "B", "ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[0], values[3], values[2], values[1], values[4]}
+	tcompare(t, err, l, exp, "filter a>=aa, sort a,b,id asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Use index with compare on A and sorting by A,B,ID desc.
+	slices.Reverse(exp)
+	l, err = QueryDB[T](ctxbg, db).FilterGreaterEqual("A", "aa").SortDesc("A", "B", "ID").List()
+	tcheck(t, err, "query")
+	tcompare(t, err, l, exp, "filter a>=aa, sort a,b,id desc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Use index with compare on A and in-memory sort for sorting by B,ID.
+	l, err = QueryDB[T](ctxbg, db).FilterGreaterEqual("A", "aa").SortAsc("B", "ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[0], values[3], values[4], values[2], values[1]}
+	tcompare(t, err, l, exp, "filter a>=aa, sort b,id asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(1), "in-memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+}
+
+func TestSortIndexInsliceMulti(t *testing.T) {
+	type T struct {
+		ID int64
+		A  []string `bstore:"index A+B"`
+		B  string
+	}
+
+	const path = "testdata/tmp.sortindexinslicemulti.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+	defer tclose(t, db)
+
+	values := []T{
+		{0, []string{"aa"}, "x"},
+		{0, []string{"aa"}, "z"},
+		{0, []string{"aa"}, "y"},
+		{0, []string{"aa"}, "x"},
+		{0, []string{"b"}, "x"},
+		{0, []string{"a"}, "x"},
+		{0, []string{"a"}, "x"},
+	}
+	for i := range values {
+		err := db.Insert(ctxbg, &values[i])
+		tcheck(t, err, "insert")
+	}
+
+	var stats, delta Stats
+	stats = db.Stats()
+
+	updateStats := func() {
+		nstats := db.Stats()
+		delta = nstats.Sub(stats)
+		stats = nstats
+	}
+
+	// Use both index and in-memory sorting for A=aa and B desc, ID asc.
+	l, err := QueryDB[T](ctxbg, db).FilterIn("A", "aa").SortDesc("B").SortAsc("ID").List()
+	tcheck(t, err, "query")
+	exp := []T{values[1], values[2], values[0], values[3]}
+	tcompare(t, err, l, exp, "filter a=aa, sort b desc,id asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(1), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Use only index, for both keys.
+	l, err = QueryDB[T](ctxbg, db).FilterIn("A", "aa").SortDesc("B", "ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[1], values[2], values[3], values[0]}
+	tcompare(t, err, l, exp, "filter a=aa, sort b desc,id desc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+}
+
+func TestSortIndexPK(t *testing.T) {
+	type T struct {
+		ID int64
+		A  string `bstore:"index"`
+	}
+
+	const path = "testdata/tmp.sortindexpk.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+	defer tclose(t, db)
+
+	values := []T{
+		{0, "aa"},
+		{0, "aa"},
+		{0, "aa"},
+		{0, "aa"},
+		{0, "b"},
+		{0, "a"},
+		{0, "a"},
+	}
+	for i := range values {
+		err := db.Insert(ctxbg, &values[i])
+		tcheck(t, err, "insert")
+	}
+
+	var stats, delta Stats
+	stats = db.Stats()
+
+	updateStats := func() {
+		nstats := db.Stats()
+		delta = nstats.Sub(stats)
+		stats = nstats
+	}
+
+	// Filter on equal by A, and use ID for index ordering.
+	l, err := QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortAsc("ID").List()
+	tcheck(t, err, "query")
+	exp := []T{values[0], values[1], values[2], values[3]}
+	tcompare(t, err, l, exp, "filter a=aa, id asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Filter on equal by A, and use A,ID for index ordering.
+	l, err = QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortAsc("A", "ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[0], values[1], values[2], values[3]}
+	tcompare(t, err, l, exp, "filter a=aa, sort a asc, id asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Filter on equal by A, and use A,ID desc for index ordering.
+	l, err = QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortDesc("A", "ID").List()
+	tcheck(t, err, "query")
+	exp = []T{values[3], values[2], values[1], values[0]}
+	tcompare(t, err, l, exp, "filter a=aa, sort a desc, id desc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+}
+
+func TestSortIndexPKStr(t *testing.T) {
+	type T struct {
+		PK string
+		A  string `bstore:"index"`
+	}
+
+	const path = "testdata/tmp.sortindexpk.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+	defer tclose(t, db)
+
+	values := []T{
+		{"l", "aa"},
+		{"ll", "aa"},
+		{"lll", "aa"},
+		{"r", "aa"},
+		{"s", "b"},
+		{"t", "a"},
+		{"u", "a"},
+	}
+	for i := range values {
+		err := db.Insert(ctxbg, &values[i])
+		tcheck(t, err, "insert")
+	}
+
+	var stats, delta Stats
+	stats = db.Stats()
+
+	updateStats := func() {
+		nstats := db.Stats()
+		delta = nstats.Sub(stats)
+		stats = nstats
+	}
+
+	// Filter on equal by A, and use PK for index ordering.
+	l, err := QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortAsc("PK").List()
+	tcheck(t, err, "query")
+	exp := []T{values[0], values[1], values[2], values[3]}
+	tcompare(t, err, l, exp, "filter a=aa, pk asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Filter on equal by A, and use A,PK for index ordering.
+	l, err = QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortAsc("A", "PK").List()
+	tcheck(t, err, "query")
+	exp = []T{values[0], values[1], values[2], values[3]}
+	tcompare(t, err, l, exp, "filter a=aa, sort a asc, pk asc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Filter on equal by A, and use A,PK desc for index ordering.
+	l, err = QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortDesc("A", "PK").List()
+	tcheck(t, err, "query")
+	exp = []T{values[3], values[2], values[1], values[0]}
+	tcompare(t, err, l, exp, "filter a=aa, sort a desc, pk desc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
+
+	// Filter on equal by A, and use A asc,PK desc for index ordering.
+	l, err = QueryDB[T](ctxbg, db).FilterEqual("A", "aa").SortAsc("A").SortDesc("PK").List()
+	tcheck(t, err, "query")
+	exp = []T{values[3], values[2], values[1], values[0]}
+	tcompare(t, err, l, exp, "filter a=aa, sort a asc, pk desc")
+	updateStats()
+	tcompare(t, nil, delta.Sort, uint(0), "in memory sort")
+	tcompare(t, nil, delta.PlanIndexScan, uint(1), "index scan")
 }

@@ -8,7 +8,6 @@ import (
 )
 
 // todo: cache query plans? perhaps explicitly through something like a prepared statement. the current plan includes values in keys,start,stop, which would need to be calculated for each execution. should benchmark time spent in planning first.
-// todo optimize: handle multiple sorts with multikey indices if they match
 // todo optimize: combine multiple filter (not)in/equals calls for same field
 // todo optimize: efficiently pack booleans in an index (eg for Message.Flags), and use it to query.
 // todo optimize: do multiple range scans if necessary when we can use an index for an equal check with multiple values.
@@ -47,12 +46,13 @@ type plan[T any] struct {
 	// empty.
 	filters []filter[T]
 
-	// Orders handled by index. If any orderings are remaining, they are in orders below.
-	ordersIdx []order
+	// Number of fields from index used to group results before applying in-memory
+	// ordering with "orders" below.
+	norderidxuse int
 
-	// Orders we need to apply after first retrieving all records with equal
-	// indexOrders. As with filters, if a range scan takes care of all orderings from
-	// the query, this field is empty.
+	// Orders we need to apply after first retrieving all records with equal values for
+	// first norderidxuse fields. As with filters, if a range scan takes care of all
+	// orderings from the query, this field is empty.
 	orders []order
 }
 
@@ -185,7 +185,7 @@ indices:
 	var p *plan[T]
 	var nexact int
 	var nrange int
-	var ordered bool
+	var norder int
 
 	evaluatePKOrIndex := func(idx *index) error {
 		var isPK bool
@@ -218,21 +218,35 @@ indices:
 		for _, f := range idx.Fields {
 			if equals[f.Name] != nil && f.Type.Kind != kindSlice {
 				skipFilters = append(skipFilters, equals[f.Name])
-				nex++
 			} else if inslices[f.Name] != nil && f.Type.Kind == kindSlice {
 				skipFilters = append(skipFilters, inslices[f.Name])
-				nex++
 			} else {
 				break
 			}
+			nex++
 		}
 
-		// See if the next field can be used for compare.
-		var gx, lx *filterCompare[T]
-		var nrng int
-		var orderidx *order
-		var ordersIdx []order
+		// For ordering, skip leading filters we already match on exactly.
 		orders := q.xorders
+		trim := 0
+	TrimOrders:
+		for _, o := range orders {
+			for _, f := range idx.Fields[:nex] {
+				if o.field.Name == f.Name {
+					trim++
+					continue TrimOrders
+				}
+			}
+			break
+		}
+		orders = orders[trim:]
+
+		// Fields from the index that we use for grouping before in-memory sorting.
+		var norderidxuse int
+
+		// See if the next index field can be used for compare and ordering.
+		var gx, lx *filterCompare[T]
+		var nrng int // for nrange
 		if nex < len(idx.Fields) {
 			nf := idx.Fields[nex]
 			for i := range q.xfilters {
@@ -259,24 +273,45 @@ indices:
 				}
 			}
 
-			// See if it can be used for ordering.
-			// todo optimize: we could use multiple orders including final ID.
-			if len(orders) > 0 && orders[0].field.Name == nf.Name {
-				// log.Printf("using for ordering first field %q", nf.Name)
-				ordersIdx = orders[:1]
-				orderidx = &orders[0]
-				orders = orders[1:]
+			// We can use multiple orderings as long as the asc/desc direction stays the same.
+			nord := 0
+			for i, o := range orders {
+				if nex+i < len(idx.Fields) && o.field.Name == idx.Fields[nex+i].Name && (nord == 0 || o.asc == orders[0].asc) {
+					nord++
+					continue
+				}
+				break
 			}
+			norderidxuse = nex + nord
+			prevorders := orders
+			orders = orders[nord:]
+
+			// The stored index key ends with the primary key, so if we're there, and the next
+			// ordering key is the primary key, we use the index for it too.
+			if norderidxuse == len(idx.Fields) && len(orders) > 0 && orders[0].field.Name == q.st.Current.Fields[0].Name && (nord == 0 || orders[0].asc == prevorders[nord-1].asc) {
+				orders = orders[1:]
+				norderidxuse++
+			}
+		} else if len(orders) > 0 && orders[0].field.Name == q.st.Current.Fields[0].Name {
+			// We only had equals filters that used all of the index, but we're also sorting by
+			// the primary key, so use the index for that too.
+			orders = orders[1:]
+			norderidxuse++
 		}
 
+		// Orders handled by the index, excluding exact match filters.
+		idxorders := q.xorders[trim : len(q.xorders)-len(orders)]
+
+		// log.Printf("index fields to match for index order: %d, orders for index %d, in-memory ordering %d, total orders %d", norderidxuse, len(idxorders), len(orders), len(q.xorders))
+
 		// See if this is better than what we had.
-		if !(nex > nexact || (nex == nexact && (nrng > nrange || orderidx != nil && !ordered && (q.xlimit > 0 || nrng == nrange)))) {
-			// log.Printf("plan not better, nex %d, nrng %d, limit %d, orderidx %v ordered %v", nex, nrng, q.xlimit, orderidx, ordered)
+		if !(nex > nexact || (nex == nexact && (nrng > nrange || len(idxorders) > norder && (q.xlimit > 0 || nrng == nrange)))) {
+			// log.Printf("plan not better, nex %d, nrng %d, limit %d, nidxorders %v ordered %v", nex, nrng, q.xlimit, len(idxorders), norder)
 			return nil
 		}
 		nexact = nex
 		nrange = nrng
-		ordered = orderidx != nil
+		norder = len(idxorders)
 
 		// Calculate the prefix key.
 		var kvalues []reflect.Value
@@ -318,7 +353,8 @@ indices:
 
 		startInclusive := gx == nil || gx.op != opGreater
 		stopInclusive := lx == nil || lx.op != opLess
-		if orderidx != nil && !orderidx.asc {
+		desc := len(idxorders) > 0 && !idxorders[0].asc
+		if desc {
 			start, stop = stop, start
 			startInclusive, stopInclusive = stopInclusive, startInclusive
 		}
@@ -329,13 +365,13 @@ indices:
 
 		p = &plan[T]{
 			idx:            idx,
-			desc:           orderidx != nil && !orderidx.asc,
+			desc:           desc,
 			start:          start,
 			stop:           stop,
 			startInclusive: startInclusive,
 			stopInclusive:  stopInclusive,
 			filters:        dropFilters(q.xfilters, skipFilters),
-			ordersIdx:      ordersIdx,
+			norderidxuse:   norderidxuse,
 			orders:         orders,
 		}
 		return nil
