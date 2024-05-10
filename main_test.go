@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"reflect"
 	"testing"
@@ -59,6 +60,16 @@ var withReopen bool
 func TestMain(m *testing.M) {
 	log.SetFlags(0)
 
+	if s := os.Getenv("BSTORE_TEST_LOGLEVEL"); s != "" {
+		var level slog.Level
+		err := level.UnmarshalText([]byte(s))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "parsing level %q from $BSTORE_TEST_LOGLEVEL: %v\n", s, err)
+			os.Exit(2)
+		}
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+	}
+
 	os.Mkdir("testdata", 0700)
 
 	// We want to run all tests twice: once without reopening the DB and once with
@@ -80,6 +91,12 @@ func TestMain(m *testing.M) {
 // leverages all test cases for this check.
 func topen(t *testing.T, path string, opts *Options, typeValues ...any) (*DB, error) {
 	t.Helper()
+	if opts == nil {
+		opts = &Options{}
+	}
+	if opts.RegisterLogger == nil {
+		opts.RegisterLogger = slog.Default()
+	}
 	db, err := Open(ctxbg, path, opts, typeValues...)
 	if !withReopen || err != nil {
 		return db, err
