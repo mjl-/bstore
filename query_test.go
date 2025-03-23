@@ -1221,7 +1221,8 @@ func TestDelete(t *testing.T) {
 		ID int64
 		A  string
 	}
-	// These values were reliably triggering the bug when removing "b". Without an "a" record that was removed first, the bug would not be triggered.
+	// These values were reliably triggering the bug when removing "b". Without an "a"
+	// record that was removed first, the bug would not be triggered.
 	values := []T{
 		{0, "a"},
 		{0, "b"},
@@ -1251,16 +1252,453 @@ func TestDelete(t *testing.T) {
 			q := QueryTx[T](tx)
 			q.FilterNonzero(T{A: dom})
 			n, err := q.Delete()
-			tcompare(t, err, n, len(l), "delete")
+			tcompare(t, err, n, len(l), "delete "+dom)
 
 			l, err = QueryTx[T](tx).FilterNonzero(T{A: dom}).List()
 			tcheck(t, err, "list after")
-			tcompare(t, err, len(l), 0, "list after delete")
+			tcompare(t, err, len(l), 0, "list after delete "+dom)
 		}
 
 		return nil
 	})
 	tcheck(t, err, "write")
+}
+
+// We must reseek a bolt cursor after making changes to the bucket we are seeking
+// over. We make changes with a cursor held during Query.Delete, Query.Update*,
+// and callers can do it during Query.ForEach. This test triggers various
+// (corner) cases that we need to handle properly.
+func TestCursorReseek(t *testing.T) {
+	type T struct {
+		ID int64
+		S  string `bstore:"index"`
+	}
+
+	runDB := func(l []string, expectReseek uint, fn func(db *DB)) {
+		t.Helper()
+
+		// See TestDelete for this testdata.
+		values := []T{
+			{0, l[0]},
+			{0, l[1]},
+			{0, l[1]},
+			{0, l[1]},
+			{0, l[1]},
+		}
+
+		const path = "testdata/tmp.cursorreseek.db"
+		os.Remove(path)
+		db, err := topen(t, path, nil, T{})
+		tcheck(t, err, "open")
+		defer tclose(t, db)
+
+		err = db.Write(ctxbg, func(tx *Tx) error {
+			for _, v := range values {
+				err := tx.Insert(&v)
+				tcheck(t, err, "insert")
+			}
+			return nil
+		})
+		tcheck(t, err, "db write")
+
+		fn(db)
+	}
+
+	runTx := func(l []string, expectReseek uint, fn func(tx *Tx)) {
+		t.Helper()
+
+		runDB(l, expectReseek, func(db *DB) {
+			var reseek uint
+			err := db.Write(ctxbg, func(tx *Tx) error {
+				t.Helper()
+				stats := tx.Stats()
+				fn(tx)
+				reseek = tx.Stats().Sub(stats).Reseek
+				return nil
+			})
+			tcheck(t, err, "write")
+			tcompare(t, nil, reseek, expectReseek, "reseek")
+		})
+	}
+
+	// Insert 1 a, then 4 b, then update "a" to "c" and then "b" to "c".
+	runTx([]string{"a", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"a", "b"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			n, err := q.UpdateNonzero(T{S: "c"})
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), len(l), "list after update "+dom)
+		}
+	})
+
+	// Like before, but switch order of updating to "c", first the "b" then the "a"
+	runTx([]string{"a", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"b", "a"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			n, err := q.UpdateNonzero(T{S: "c"})
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), len(l), "list after update "+dom)
+		}
+	})
+
+	// Like previous two, but with 1 "c" and 1 "b" and changing them to "a".
+	runTx([]string{"c", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"c", "b"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			q.SortDesc("S", "ID")
+			n, err := q.UpdateNonzero(T{S: "a"})
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), len(l), "list after update "+dom)
+		}
+	})
+
+	runTx([]string{"c", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"b", "c"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			q.SortDesc("S", "ID")
+			n, err := q.UpdateNonzero(T{S: "a"})
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), len(l), "list after update "+dom)
+		}
+	})
+
+	// Query.Delete.
+	runTx([]string{"a", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"a", "b"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			n, err := q.Delete()
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), 0, "list after delete "+dom)
+		}
+	})
+
+	runTx([]string{"c", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"c", "b"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			q.SortDesc("S", "ID")
+			n, err := q.Delete()
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), 0, "list after delete "+dom)
+		}
+	})
+
+	// With tx.Update.
+	runTx([]string{"a", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"a", "b"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			var n int
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			err = q.ForEach(func(v T) error {
+				n++
+				v.S = "c"
+				return tx.Update(&v)
+			})
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), 0, "list after update "+dom)
+		}
+	})
+
+	runTx([]string{"c", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"c", "b"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			var n int
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			q.SortDesc("S", "ID")
+			err = q.ForEach(func(v T) error {
+				n++
+				v.S = "a"
+				return tx.Update(&v)
+			})
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), 0, "list after update "+dom)
+		}
+	})
+
+	// With tx.Delete.
+	runTx([]string{"a", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"a", "b"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			var n int
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			err = q.ForEach(func(v T) error {
+				n++
+				return tx.Delete(&v)
+			})
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), 0, "list after update "+dom)
+		}
+	})
+
+	runTx([]string{"c", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"c", "b"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			var n int
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			q.SortDesc("S", "ID")
+			err = q.ForEach(func(v T) error {
+				n++
+				return tx.Delete(&v)
+			})
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			l, err = QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(l), 0, "list after update "+dom)
+		}
+	})
+
+	// With tx.Insert.
+	runTx([]string{"a", "b"}, 5, func(tx *Tx) {
+		for _, dom := range []string{"a", "b"} {
+			l, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			var n int
+			q := QueryTx[T](tx)
+			q.FilterNonzero(T{S: dom})
+			err = q.ForEach(func(v T) error {
+				if err := tx.Insert(&T{0, "Z"}); err != nil {
+					return err
+				}
+				if err := tx.Insert(&T{0, "c"}); err != nil {
+					return err
+				}
+				n++
+				return nil
+			})
+			tcompare(t, err, n, len(l), "update "+dom)
+
+			nl, err := QueryTx[T](tx).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list after")
+			tcompare(t, err, len(nl), len(l), "list after update "+dom)
+		}
+	})
+
+	// Using QueryDB.
+	runDB([]string{"a", "b"}, 5, func(db *DB) {
+		for _, dom := range []string{"a", "b"} {
+			l, err := QueryDB[T](ctxbg, db).FilterNonzero(T{S: dom}).List()
+			tcheck(t, err, "list before")
+
+			n, err := QueryDB[T](ctxbg, db).FilterNonzero(T{S: dom}).SortDesc("S", "ID").Delete()
+			tcompare(t, err, n, len(l), "delete "+dom)
+
+			l, err = QueryDB[T](ctxbg, db).FilterNonzero(T{S: dom}).List()
+			tcompare(t, err, len(l), 0, "list after delete "+dom)
+		}
+	})
+}
+
+// TestCursorReseekStowed tests the code path for "stowed" keys (stowed because of
+// a sort that uses a partial index and collects matching values).
+func TestCursorReseekStowed(t *testing.T) {
+	type T struct {
+		ID    int64
+		S     string `bstore:"index"`
+		Other string
+	}
+
+	t.Helper()
+
+	// Similar to data from TestDelete.
+	values := []T{
+		{0, "a", "E"},
+		{0, "b", "D"},
+		{0, "b", "C"},
+		{0, "b", "B"},
+		{0, "b", "A"},
+		{0, "c", "@"},
+	}
+
+	const path = "testdata/tmp.cursorreseekstowed.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+	defer tclose(t, db)
+
+	err = db.Write(ctxbg, func(tx *Tx) error {
+		for _, v := range values {
+			err := tx.Insert(&v)
+			tcheck(t, err, "insert")
+		}
+		return nil
+	})
+	tcheck(t, err, "db write")
+
+	stats := db.Stats()
+	err = db.Write(ctxbg, func(tx *Tx) error {
+		for _, dom := range []string{"a", "b"} {
+			l, err := QueryTx[T](tx).SortAsc("S", "Other").List()
+			tcheck(t, err, "list before")
+
+			n, err := QueryTx[T](tx).SortAsc("S", "Other").Delete()
+			tcompare(t, err, n, len(l), "delete "+dom)
+
+			l, err = QueryTx[T](tx).List()
+			tcompare(t, err, len(l), 0, "list after delete "+dom)
+		}
+		return nil
+	})
+	tcheck(t, err, "db write")
+	reseek := db.Stats().Sub(stats).Reseek
+	// Once for each index key prefix for "S".
+	tcompare(t, nil, reseek, uint(3), "reseek")
+
+	// Now in reverse.
+	err = db.Write(ctxbg, func(tx *Tx) error {
+		for _, v := range values {
+			err := tx.Insert(&v)
+			tcheck(t, err, "insert")
+		}
+		return nil
+	})
+	tcheck(t, err, "db write")
+	stats = db.Stats()
+	err = db.Write(ctxbg, func(tx *Tx) error {
+		for _, dom := range []string{"a", "b"} {
+			l, err := QueryTx[T](tx).SortDesc("S", "Other").List()
+			tcheck(t, err, "list before")
+
+			n, err := QueryTx[T](tx).SortDesc("S", "Other").Delete()
+			tcompare(t, err, n, len(l), "delete "+dom)
+
+			l, err = QueryTx[T](tx).List()
+			tcompare(t, err, len(l), 0, "list after delete "+dom)
+		}
+		return nil
+	})
+	tcheck(t, err, "db write")
+	reseek = db.Stats().Sub(stats).Reseek
+	// Once for each index key prefix for "S".
+	tcompare(t, nil, reseek, uint(3), "reseek")
+
+	// Again in reverse, but we delete all other records in between collection data
+	// pairs in exec, to force a seek to the end.
+	err = db.Write(ctxbg, func(tx *Tx) error {
+		for _, v := range values {
+			err := tx.Insert(&v)
+			tcheck(t, err, "insert")
+		}
+		return nil
+	})
+	tcheck(t, err, "db write")
+	stats = db.Stats()
+	err = db.Write(ctxbg, func(tx *Tx) error {
+		var n int
+		err := QueryTx[T](tx).SortDesc("S", "Other").ForEach(func(v T) error {
+			if n == 0 {
+				_, err := QueryTx[T](tx).Delete()
+				tcheck(t, err, "delete all")
+			}
+			n++
+			return nil
+		})
+		// 1 "c", the others are removed.
+		tcompare(t, err, n, 1, "foreach while deleting")
+
+		l, err := QueryTx[T](tx).List()
+		tcompare(t, err, len(l), 0, "list after delete")
+		return nil
+	})
+	tcheck(t, err, "db write")
+	reseek = db.Stats().Sub(stats).Reseek
+	// 1 for ForEach, 6 for each row deleted.
+	tcompare(t, nil, reseek, uint(1+6), "reseek")
+
+	// Similar with reverse order and deleting while iterating, causing move to a key we already collected.
+	err = db.Write(ctxbg, func(tx *Tx) error {
+		for _, v := range values {
+			err := tx.Insert(&v)
+			tcheck(t, err, "insert")
+		}
+		return nil
+	})
+	tcheck(t, err, "db write")
+	stats = db.Stats()
+	err = db.Write(ctxbg, func(tx *Tx) error {
+		var n int
+		err := QueryTx[T](tx).FilterLess("S", "c").SortDesc("S", "Other").ForEach(func(v T) error {
+			if n == 0 {
+				_, err := QueryTx[T](tx).FilterNonzero(T{S: "a"}).Delete()
+				tcheck(t, err, "delete a")
+			}
+			n++
+			return nil
+		})
+		// 4 "b" that were collected before removing.
+		tcompare(t, err, n, 4, "foreach while deleting")
+
+		l, err := QueryTx[T](tx).List()
+		tcompare(t, err, len(l), 4+1, "list after delete")
+		return nil
+	})
+	tcheck(t, err, "db write")
+	reseek = db.Stats().Sub(stats).Reseek
+	// 1 for Delete during ForEach, 1 for deleted "a"
+	tcompare(t, nil, reseek, uint(1+1), "reseek")
 }
 
 func TestSortIndex(t *testing.T) {
