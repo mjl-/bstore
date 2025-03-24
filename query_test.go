@@ -283,6 +283,33 @@ func TestQuery(t *testing.T) {
 	})
 	tcompare(t, err, n, 0, "foreach")
 
+	// All with iter.Seq2.
+	n = 0
+	for _, err := range q().All() {
+		tcheck(t, err, "all")
+		n++
+	}
+	tcompare(t, nil, n, 3, "all")
+
+	// All with an error.
+	qe := q()
+	n = 0
+	for _, err := range qe.All() {
+		if n == 0 {
+			tcheck(t, err, "all")
+			err = qe.Close()
+			tcheck(t, err, "close query")
+		} else if n == 1 {
+			if err != ErrFinished {
+				t.Fatalf("got err %v, expected ErrFinished", err)
+			}
+		} else {
+			t.Fatalf("closed query keeps iterating")
+		}
+		n++
+	}
+	tcompare(t, nil, n, 2, "iterate over all with error")
+
 	ids = nil
 	err = q().IDs(&ids)
 	tcompare(t, err, ids, []int{u0.ID, u1.ID, u2.ID}, "ids")
