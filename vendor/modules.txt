@@ -1,5 +1,5 @@
-# go.etcd.io/bbolt v1.3.11
-## explicit; go 1.22
+# go.etcd.io/bbolt v1.3.12
+## explicit; go 1.23
 go.etcd.io/bbolt
 # golang.org/x/sys v0.4.0
 ## explicit; go 1.17
