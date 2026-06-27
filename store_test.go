@@ -107,13 +107,13 @@ func TestStore(t *testing.T) {
 		private int
 	}
 
-	tv, err := gatherTypeVersion(reflect.TypeOf(User{}))
+	tv, err := gatherTypeVersion(reflect.TypeFor[User]())
 	tcheck(t, err, "gatherinTypeVersions")
 	if tv.name != "User" {
 		t.Fatalf("name %q, expected User", tv.name)
 	}
 	tv.Version = 1
-	st := storeType{tv.name, reflect.TypeOf(User{}), tv, map[uint32]*typeVersion{tv.Version: tv}}
+	st := storeType{tv.name, reflect.TypeFor[User](), tv, map[uint32]*typeVersion{tv.Version: tv}}
 	now := time.Now().Round(0) // time without monotonic time, for later deepequal comparison
 	u := User{
 		ID:         123,
@@ -2141,7 +2141,7 @@ type Custom struct {
 }
 
 func (c Custom) MarshalBinary() (data []byte, err error) {
-	return []byte(fmt.Sprintf("%d", c.Int)), nil
+	return fmt.Appendf(nil, "%d", c.Int), nil
 }
 
 func (c *Custom) UnmarshalBinary(data []byte) error {
@@ -3517,7 +3517,7 @@ func BenchmarkGet(b *testing.B) {
 
 	const count = 100 * 1000
 	err = db.Write(ctxbg, func(tx *Tx) error {
-		for i := 0; i < count; i++ {
+		for i := range count {
 			u := User{Name: fmt.Sprintf("user%d", i)}
 			err := tx.Insert(&u)
 			bcheck(b, err, "insert")
@@ -3553,7 +3553,7 @@ func BenchmarkRange(b *testing.B) {
 
 	const count = 100 * 1000
 	err = db.Write(ctxbg, func(tx *Tx) error {
-		for i := 0; i < count; i++ {
+		for i := range count {
 			u := User{Name: fmt.Sprintf("user%07d", i)}
 			err := tx.Insert(&u)
 			bcheck(b, err, "insert")

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"time"
 )
 
@@ -321,10 +322,8 @@ func packIndexKey(frv reflect.Value) ([][]byte, error) {
 		buf = binary.BigEndian.AppendUint64(nil, frv.Uint())
 	case kindString:
 		buf = []byte(frv.String())
-		for _, c := range buf {
-			if c == 0 {
-				return nil, fmt.Errorf("%w: string used as index key cannot have \\0", ErrParam)
-			}
+		if slices.Contains(buf, 0) {
+			return nil, fmt.Errorf("%w: string used as index key cannot have \\0", ErrParam)
 		}
 		buf = append(buf, 0)
 	case kindTime:
@@ -334,7 +333,7 @@ func packIndexKey(frv reflect.Value) ([][]byte, error) {
 	case kindSlice:
 		n := frv.Len()
 		bufs := make([][]byte, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			nbufs, err := packIndexKey(frv.Index(i))
 			if err != nil {
 				return nil, fmt.Errorf("packing element from slice field: %w", err)

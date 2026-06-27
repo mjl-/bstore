@@ -62,7 +62,7 @@ func FuzzParse(f *testing.F) {
 		CoordsPtr  *[2]float64
 		BMptr      *bm
 	}
-	t := reflect.TypeOf(User{})
+	t := reflect.TypeFor[User]()
 	tv, err := gatherTypeVersion(t)
 	if err != nil {
 		f.Fatalf("type version: %v", err)
