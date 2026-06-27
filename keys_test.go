@@ -39,9 +39,10 @@ func tneedpkkey[T any](t *testing.T, openErr, insertErr error, v T, field string
 	l, err = QueryDB[T](ctxbg, db).FilterEqual(field, fv).List()
 	tcompare(t, err, l, []T{v}, "list by equal")
 
-	pkv := reflect.ValueOf(v).Field(0).Interface()
-	if b, ok := pkv.([]byte); ok {
-		pkv = string(b) // Bytes keys as strings.
+	pkrv := reflect.ValueOf(v).Field(0)
+	pkv := pkrv.Interface()
+	if t := pkrv.Type(); t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8 {
+		pkv = string(pkrv.Bytes()) // Bytes keys as strings.
 	}
 	tname, err := typeName(reflect.TypeOf(v))
 	tcheck(t, err, "typename")
@@ -196,4 +197,16 @@ func TestKeys(t *testing.T) {
 		B  []int `bstore:"index B+A"`
 	}
 	tneedpkkey(t, ErrType, nil, MultipleSliceFields{}, "")
+
+	// PK should work for any type with the right underlying type.
+	type tstring string
+	type tbytes []byte
+	type tbool bool
+	type tint8 int8
+	type tuint64 uint64
+	tneedpkkey(t, nil, nil, Auto[tstring]{"test"}, "PK")
+	tneedpkkey(t, nil, nil, Auto[tbytes]{[]byte("test")}, "PK")
+	tneedpkkey(t, nil, nil, Auto[tbool]{true}, "PK")
+	tneedpkkey(t, nil, nil, Auto[tint8]{0}, "PK")
+	tneedpkkey(t, nil, nil, Auto[tuint64]{0}, "PK")
 }
