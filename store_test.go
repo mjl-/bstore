@@ -3499,6 +3499,30 @@ func TestMmapSafety(t *testing.T) {
 	v.Buf[0] = 'T'
 }
 
+func TestInsertSequence(t *testing.T) {
+	type T struct {
+		ID int64
+	}
+
+	const path = "testdata/tmp.insertsequence.db"
+	os.Remove(path)
+	db, err := topen(t, path, nil, T{})
+	tcheck(t, err, "open")
+
+	var t1, t2, t11 T
+	t10 := T{ID: 10}
+
+	err = db.Insert(ctxbg, &t1, &t2)
+	tcompare(t, err, t1.ID, int64(1), "sequence after insert")
+	tcompare(t, err, t2.ID, int64(2), "sequence after insert")
+	err = db.Insert(ctxbg, &t10)
+	tcompare(t, err, t10.ID, int64(10), "sequence after insert")
+	err = db.Insert(ctxbg, &t11)
+	tcompare(t, err, t11.ID, int64(11), "sequence after insert")
+
+	tclose(t, db)
+}
+
 func bcheck(b *testing.B, err error, msg string) {
 	if err != nil {
 		b.Fatalf("%s: %s", msg, err)

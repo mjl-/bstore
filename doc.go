@@ -51,9 +51,11 @@ where you would use NULL values in SQL.
 The typical Go struct can be stored in the database. The first field of a
 struct type is its primary key, must always be unique, and in case of an
 integer type the insertion of a zero value automatically changes it to the next
-sequence number by default.  Additional behaviour can be configured through
-struct tag "bstore". The values are comma-separated.  Typically one word, but
-some have multiple space-separated words:
+sequence number by default, and insertion of a non-zero value updates the
+internal sequence so future inserts with zero values are higher. Additional
+behaviour can be configured through struct tag "bstore". The values are
+comma-separated. Typically one word, but some have multiple space-separated
+words:
 
   - "-" ignores the field entirely, not stored.
   - "name <fieldname>", use "fieldname" instead of the Go type field name.
